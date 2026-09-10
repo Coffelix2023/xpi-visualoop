@@ -68,3 +68,4 @@ pnpm test             # vitest run
 - 推送分支后再开 PR; Agent 不代做 merge, 不代做 `git push --force`、`reset --hard`、`restore .`、`checkout .`、`clean -fd`、`--no-verify`.
 - 如果用户问合并 / release / 发布, 说明 GitHub UI 里的下一步并停在需要人类确认的位置。
 - 远端不存在、分叉、冲突、ignore 对不上时先说风险, 不猜测.
+- **本项目 git 纪律例外**:默认不新建工作分支,全部工作保持在 `main` 上直接提交;提交粒度小、可回滚,不做 `push --force` 与历史重写。若后续切换到阶段二(分支 + PR),以 `docs/GITHUB-GUARD.md` 为准。
