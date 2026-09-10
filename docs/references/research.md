@@ -426,3 +426,47 @@
  当前没有创建 OpenSpec change，也没有修改文件。下一步最关键的选择是：这个工具的第一用户场景优先是“
  检查本地开发中的 Web 页面”，还是“观察用户当前已经登录的真实 Chrome 页面”。
 ```
+
+## 附录 A：浏览器后端决策记录（2026-09-10 修订）
+
+### 决策
+
+- **浏览器后端改为扩展内建的 Node CDP 客户端**，不再 `spawn` 外部 `browser-harness` 命令。
+- `docs/references/browser-harness` 本地 clone 删除；固定参考点见下方「参考点」。
+- 本文第 2 节「参考仓库职责判断」中 browser-harness 一行与第 4 节「方案 A」保留为**历史决策记录**，不再是当前实现在用方案。
+
+### 依据
+
+1. **支付成本但未获得收益。** browser-harness 的架构价值是 daemon + AF_UNIX IPC，服务「多 agent 进程共享同一浏览器、接管用户已登录 Chrome 标签页」。本项目实际用法是专用 Chrome、私有 workspace、私有 runtime dir、单进程顺序调用（`src/visual-loop/harness.ts` 的 `environment()` 把所有 `BH_*` 指向私有目录），daemon 的复杂度全部付账，核心能力一项未用。
+2. **实际依赖面只有约 12 个 CDP 调用。** `harness.ts` 的固定脚本使用 `_send` / `new_tab` / `switch_tab` / `current_tab` / `close_tab` / `cdp` / `goto_url` / `wait_for_load` / `page_info` / `capture_screenshot` / `js` / `drain_events`，加上 PIL 裁剪。
+3. **Node 24 内置 `WebSocket`**（`typeof WebSocket === "function"`），CDP 是 WebSocket 上的 JSON，直连无需任何新增依赖。
+4. **坐标系可以统一。** `Page.captureScreenshot` 的 `clip` 复合类型 `Page.Viewport` 字段 `x` / `y` / `width` / `height` 官方语义为 DIP（device independent pixel），与现有 `visibleBounds` 的 CSS 像素同系；现有 `scale_x = raw_width / page_before["w"]` 的 DPR 换算与 PIL 裁剪可整体删除。
+5. **Pi 包机制不支持 Python。** 官方 `docs/packages.md`：第三方运行时依赖放 `dependencies`，安装时只跑 `npm install`；`bundledDependencies` 仅用于嵌套 Pi 包。无 pip / uv 钩子。
+6. **vendor Python 子集解决不了依赖问题。** `cdp-use==1.4.5` / `websockets==15.0.1` / `pillow==12.3.0` 仍需用户自行安装；既然仍需 `uv tool install browser-harness`，vendor 源码只增加仓库体积与双份维护。
+
+### 参考点（clone 删除后从这里重取）
+
+- 仓库：`https://github.com/browser-use/browser-harness`
+- 已核对 commit：`afbcc381b963040c19627d788e40c7e7663171ee`（`v0.1.13-24-gafbcc38`，2026-09-07）
+- 当时版本：`browser-harness 0.1.13`，许可证 MIT
+- 重取方式：`git clone https://github.com/browser-use/browser-harness.git "$(mktemp -d)/browser-harness"`
+
+### 未验证项（必须真实 Chrome 冒烟确认）
+
+- **输出像素上限。** 现实现用 PIL 缩到 2000px/边、4MB，CDP 无等价原生能力；`clip.scale` 是页面缩放因子（与 DPR 相乘），能否精确控制输出像素未实测。兜底：prepare 阶段把 viewport 限到 1000×1000。
+- **Chrome 144+ 每连接授权弹窗。** 上游用 `mac-approve` 绕开前台弹窗，直连 CDP 会撞上，需确认降级方案。
+- **事件路由。** `Target.attachToTarget` 使用 `flatten: true` 后事件带 `sessionId`，必须按 sessionId 过滤。
+- **断连语义。** daemon 做了重连与 `cdp_disconnected` 处理，单进程客户端需明确「一次操作一连接」还是「长连接 + 重连」。
+
+### 重写必须保持的等价行为
+
+- 固定条件：`Emulation.setDeviceMetricsOverride` 锁 viewport / DPR；readiness 三重检查（`readyState` / `document.fonts.status` / 可见图片 `complete && naturalWidth > 0`）5 秒 deadline，超时降级为 `degraded` 并附 reasons。
+- 不隐式副作用：capture 前后比对 URL、滚动位置与 target bounds，变化即记 reasons；保留 `allowTargetFailure` 分支语义。
+- diagnostics：只收 `Runtime.consoleAPICalled`（`error` / `assert`）与 `Network.responseReceived`（`status >= 400`）/ `Network.loadingFailed`，上限 20 条，URL 截为 scheme + host，message 双重脱敏。
+- target 归属：`close` 必须校验 URL 未变，防误关用户标签页。
+- 进程边界：超时 30s、stdout 64KB / stderr 16KB 上限、SIGTERM 后 500ms SIGKILL；重写后改用 `AbortSignal`。
+
+### 收尾事项
+
+- `openspec/changes/add-local-visual-feedback-loop/proposal.md` 的 Impact 声明（「外部 `browser-harness` 命令」）与 `design.md` 术语需在 MVP 完成后同步修订。
+- `src/visual-loop/config.ts` 的 `harnessPath` 字段在 Node 版中失去意义，属 breaking config 变更，需保留一个迁移期 diagnostic。
