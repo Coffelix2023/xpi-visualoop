@@ -16,8 +16,8 @@
         "useSortedKeys": {
           "level": "on",
           "options": {
-            "groupByNesting": true, //按嵌套排序
-            "sortOrder": "natural" //按字母排序
+            "groupByNesting": true,
+            "sortOrder": "natural"
           }
         }
       }
@@ -63,6 +63,7 @@
       "!**/build",
       "!**/backend",
       "!**/__fixtures__",
+      "!docs/references",
       "!src/components/ui", //排除 shadcn-ui
       "!src/components/assistant-ui", //排除 assistant-ui
       "!src/components/animate-ui", //排除 animate-ui
@@ -92,7 +93,6 @@
       "enabled": true
     },
     "formatter": {
-      /* 显式启用 */
       "arrowParentheses": "always",
       "attributePosition": "multiline",
       "bracketSameLine": false,
