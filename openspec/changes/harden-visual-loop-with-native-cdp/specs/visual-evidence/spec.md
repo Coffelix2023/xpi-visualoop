@@ -53,7 +53,7 @@
 - **WHEN** 设备像素比大于 1 或页面缩放不为 1 时按页面坐标请求裁剪
 - **THEN** 裁切结果的覆盖范围与请求的页面坐标一致，记录的区域边界与视口坐标可比，不因显示像素换算产生偏移
 
-### Requirement: Bounded and trusted data handling with explicit budgets
+### Requirement: Bounded and trusted data handling
 
 系统 SHALL 限制图像像素和字节数、结构化输出、文本、诊断条数、子进程输出及执行时间。**evidenceDiskBudget**(临时文件磁盘预算)SHALL 限制单次采集的图像字节数上限为 4 MiB,单个会话的累计磁盘占用上限为 100 MiB。**modelPayloadBudget**(注入模型的上下文预算)SHALL 限制单次采集返回的结构化文本上限为 16 KiB。项目配置 SHALL 仅在项目受信任时生效。页面文本、选择器、端点响应和外部工具输出 MUST 按不可信数据验证;不允许它们变成任意脚本、命令或输出文件路径。系统 SHALL 不默认收集认证头、Cookie、完整请求正文或完整页面源码,且不自动开启录制。系统 SHALL 同样限制复核返回的结构化结果与图像总量,MUST 不因一次调用而超出 modelPayloadBudget 与 evidenceDiskBudget 设定的预算。
 #### Scenario: Untrusted project configuration
