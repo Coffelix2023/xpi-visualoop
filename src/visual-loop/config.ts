@@ -1,0 +1,243 @@
+import { readFile } from "node:fs/promises";
+import { isAbsolute, resolve } from "node:path";
+
+export interface VisualLoopConfig {
+  cdpUrl: string;
+  glimpseModulePath?: string;
+  harnessPath: string;
+}
+
+interface PartialVisualLoopConfig {
+  cdpUrl?: string;
+  glimpseModulePath?: string;
+  harnessPath?: string;
+}
+
+export interface ConfigLoadResult {
+  config?: VisualLoopConfig;
+  diagnostics: string[];
+}
+
+const CONFIG_KEYS = new Set([
+  "cdpUrl",
+  "glimpseModulePath",
+  "harnessPath",
+]);
+const LOOPBACK_HOSTS = new Set([
+  "127.0.0.1",
+  "localhost",
+  "::1",
+]);
+const COMMAND_NAME = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/;
+
+function objectRecord(value: unknown, source: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${source} must contain a JSON object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function validateExecutable(value: unknown, source: string): string {
+  if (typeof value !== "string" || value.length === 0 || value.length > 4096) {
+    throw new Error(`${source}.harnessPath must be a non-empty path`);
+  }
+  if (value.includes("\0") || value.includes("\n") || value.includes("\r")) {
+    throw new Error(`${source}.harnessPath contains a forbidden character`);
+  }
+  if (isAbsolute(value)) return value;
+  if (
+    value.startsWith("./") ||
+    value.startsWith("../") ||
+    value.includes("/") ||
+    value.includes("\\")
+  ) {
+    throw new Error(`${source}.harnessPath must be absolute or a command name`);
+  }
+  if (!COMMAND_NAME.test(value)) {
+    throw new Error(`${source}.harnessPath is not a safe command name`);
+  }
+  return value;
+}
+
+export function isLoopbackHost(hostname: string): boolean {
+  return LOOPBACK_HOSTS.has(hostname.toLowerCase().replace(/^\[|\]$/g, ""));
+}
+
+export function validateEndpoint(value: unknown): string {
+  if (typeof value !== "string" || value.length === 0 || value.length > 2048) {
+    throw new Error("cdpUrl must be a non-empty URL");
+  }
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("cdpUrl must be a valid URL");
+  }
+  if (url.protocol !== "http:") throw new Error("cdpUrl must use http");
+  if (!isLoopbackHost(url.hostname)) throw new Error("cdpUrl must use a loopback host");
+  if (url.username || url.password)
+    throw new Error("cdpUrl must not contain user information");
+  if (url.search || url.hash)
+    throw new Error("cdpUrl must not contain query or fragment data");
+  return url.toString();
+}
+
+export function validateLocalPageUrl(value: unknown): string {
+  if (typeof value !== "string" || value.length === 0 || value.length > 8192) {
+    throw new Error("url must be a non-empty URL");
+  }
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("url must be a valid URL");
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("url must use http or https");
+  }
+  if (!isLoopbackHost(url.hostname)) throw new Error("url must use a loopback host");
+  if (url.username || url.password)
+    throw new Error("url must not contain user information");
+  return url.toString();
+}
+
+function parsePartial(value: unknown, source: string): PartialVisualLoopConfig {
+  const record = objectRecord(value, source);
+  for (const key of Object.keys(record)) {
+    if (!CONFIG_KEYS.has(key))
+      throw new Error(`${source} contains unknown field: ${key}`);
+  }
+  const result: PartialVisualLoopConfig = {};
+  if ("cdpUrl" in record) result.cdpUrl = validateEndpoint(record.cdpUrl);
+  if ("harnessPath" in record)
+    result.harnessPath = validateExecutable(record.harnessPath, source);
+  if ("glimpseModulePath" in record) {
+    if (
+      typeof record.glimpseModulePath !== "string" ||
+      !isAbsolute(record.glimpseModulePath)
+    ) {
+      throw new Error(`${source}.glimpseModulePath must be an absolute path`);
+    }
+    result.glimpseModulePath = resolve(record.glimpseModulePath);
+  }
+  return result;
+}
+
+export function parseConfigText(text: string, source: string): PartialVisualLoopConfig {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    throw new Error(`${source} is not valid JSON`);
+  }
+  return parsePartial(value, source);
+}
+
+async function readConfigFile(
+  path: string,
+): Promise<PartialVisualLoopConfig | undefined> {
+  try {
+    return parseConfigText(await readFile(path, "utf8"), path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+export async function loadConfig(
+  agentDir: string,
+  cwd: string,
+  projectTrusted: boolean,
+): Promise<ConfigLoadResult> {
+  const diagnostics: string[] = [];
+  const merged: PartialVisualLoopConfig = {};
+  const userPath = resolve(agentDir, "xpi-visualoop.json");
+  try {
+    Object.assign(merged, (await readConfigFile(userPath)) ?? {});
+  } catch (error) {
+    diagnostics.push(error instanceof Error ? error.message : String(error));
+    return {
+      diagnostics,
+    };
+  }
+
+  const projectPath = resolve(cwd, ".pi", "xpi-visualoop.json");
+  if (!projectTrusted) {
+    try {
+      if (await readConfigFile(projectPath))
+        diagnostics.push(
+          "project configuration ignored because the project is untrusted",
+        );
+    } catch (error) {
+      diagnostics.push(
+        `project configuration ignored: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  } else {
+    try {
+      Object.assign(merged, (await readConfigFile(projectPath)) ?? {});
+    } catch (error) {
+      diagnostics.push(error instanceof Error ? error.message : String(error));
+      return {
+        diagnostics,
+      };
+    }
+  }
+
+  if (!merged.cdpUrl || !merged.harnessPath) {
+    diagnostics.push("visual loop is not configured: set cdpUrl and harnessPath");
+    return {
+      diagnostics,
+    };
+  }
+  return {
+    config: {
+      cdpUrl: merged.cdpUrl,
+      ...(merged.glimpseModulePath
+        ? {
+            glimpseModulePath: merged.glimpseModulePath,
+          }
+        : {}),
+      harnessPath: merged.harnessPath,
+    },
+    diagnostics,
+  };
+}
+
+export async function validateEndpointReachability(
+  cdpUrl: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const endpoint = new URL("/json/version", cdpUrl);
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      signal,
+    });
+  } catch {
+    throw new Error("configured CDP endpoint is unreachable");
+  }
+  if (!response.ok)
+    throw new Error(`configured CDP endpoint returned HTTP ${response.status}`);
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error("configured CDP endpoint did not return JSON");
+  }
+  const websocket = objectRecord(payload, "CDP endpoint response").webSocketDebuggerUrl;
+  if (typeof websocket !== "string")
+    throw new Error("CDP endpoint did not advertise a WebSocket");
+  let wsUrl: URL;
+  try {
+    wsUrl = new URL(websocket);
+  } catch {
+    throw new Error("CDP WebSocket URL is invalid");
+  }
+  if (
+    (wsUrl.protocol !== "ws:" && wsUrl.protocol !== "wss:") ||
+    !isLoopbackHost(wsUrl.hostname)
+  ) {
+    throw new Error("CDP WebSocket URL must remain on a loopback host");
+  }
+}
