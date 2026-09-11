@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
+import { DEFAULT_CDP_URL, ensureEndpoint, probeEndpoint } from "./chrome.ts";
 
 export interface VisualLoopConfig {
   cdpUrl: string;
@@ -164,9 +165,16 @@ export async function loadConfig(
     }
   }
 
+  // No cdpUrl anywhere: fall back to the documented default endpoint instead of
+  // refusing to start. Every other failure mode stays fail-closed.
   if (!merged.cdpUrl) {
-    diagnostics.push("visual loop is not configured: set cdpUrl");
+    diagnostics.push(
+      `visual loop uses the default CDP endpoint ${DEFAULT_CDP_URL}; set cdpUrl at ${userPath} to change it`,
+    );
     return {
+      config: {
+        cdpUrl: DEFAULT_CDP_URL,
+      },
       diagnostics,
     };
   }
@@ -227,9 +235,26 @@ export async function resolveCdpWebSocketUrl(
   return wsUrl.toString();
 }
 
+/**
+ * Reachability check with one lazy repair step: when nothing listens on the
+ * endpoint, start the extension-owned browser once and re-probe. An endpoint
+ * that answers but is not CDP is not ours to fix, so its own error wins.
+ */
 export async function validateEndpointReachability(
   cdpUrl: string,
   signal?: AbortSignal,
 ): Promise<void> {
-  await resolveCdpWebSocketUrl(cdpUrl, signal);
+  try {
+    await resolveCdpWebSocketUrl(cdpUrl, signal);
+    return;
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    if (await probeEndpoint(cdpUrl, signal)) throw error;
+    await ensureEndpoint(cdpUrl, signal);
+    try {
+      await resolveCdpWebSocketUrl(cdpUrl, signal);
+    } catch {
+      throw error;
+    }
+  }
 }

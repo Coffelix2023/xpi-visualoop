@@ -2,6 +2,7 @@ import { readFile, stat } from "node:fs/promises";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { stopOwnedChrome } from "./visual-loop/chrome.ts";
 import { formatPrepareResult, VisualLoopManager } from "./visual-loop/context.ts";
 import type { Capture, Comparison } from "./visual-loop/evidence.ts";
 import {
@@ -386,6 +387,7 @@ export default function xpiVisualoop(pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       if (args.trim() === "disconnect") {
         await manager.disconnect();
+        stopOwnedChrome();
         ctx.ui.notify("xpi-visualoop disconnected");
         return;
       }

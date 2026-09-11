@@ -51,8 +51,12 @@ const EXPECTED_TOOL_NAMES = new Set([
 ]);
 
 /** Methods that would break the read-only boundary if they appeared. */
-const NO_DYNAMIC_EXEC = /child_process|worker_threads|\bvm\./;
+/** Dynamic execution is forbidden everywhere in the source tree. */
+const NO_DYNAMIC_EXEC = /worker_threads|\bvm\./;
 const NO_EVAL = /\beval\(|new Function|runInThisContext/;
+/** Spawning a process is allowed in exactly one module; see the test below. */
+const NO_SPAWN = /child_process/;
+const SPAWN_OWNER = "chrome.ts";
 const FORBIDDEN_MANAGER_METHOD =
   /click|input|type|navigate|eval|exec|script|key|scroll/i;
 
@@ -107,18 +111,23 @@ describe("read-only boundary", () => {
     expect(sentList.some((method) => method.startsWith("Input."))).toBe(false);
   });
 
-  it("keeps page evaluation, spawning, and dynamic execution out of the source tree", async () => {
-    const texts = await Promise.all(
-      (await sourceFiles(SRC_ROOT)).map((file) => readFile(file, "utf8")),
-    );
+  it("keeps page evaluation out of every module and spawning inside the browser launcher", async () => {
+    const files = await sourceFiles(SRC_ROOT);
     const evaluateFiles: string[] = [];
-    for (const text of texts) {
-      if (text.includes("Runtime.evaluate")) evaluateFiles.push(text);
+    const spawnFiles: string[] = [];
+    for (const file of files) {
+      const text = await readFile(file, "utf8");
+      if (text.includes("Runtime.evaluate")) evaluateFiles.push(file);
+      if (NO_SPAWN.test(text)) spawnFiles.push(file);
       expect(text).not.toMatch(NO_DYNAMIC_EXEC);
       expect(text).not.toMatch(NO_EVAL);
     }
-    // Fixed read-only scripts only; every evaluation call site lives in one module.
     // Fixed read-only scripts only; exactly one source file evaluates pages.
     expect(evaluateFiles).toHaveLength(1);
+    // The extension starts its own browser from one module and nowhere else,
+    // so the launch path stays auditable.
+    expect(spawnFiles.map((file) => file.split("/").pop())).toEqual([
+      SPAWN_OWNER,
+    ]);
   });
 });

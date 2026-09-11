@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { DEFAULT_CDP_URL } from "../src/visual-loop/chrome.ts";
 import {
   HARNESS_MIGRATION_HINT,
   loadConfig,
@@ -102,11 +103,20 @@ describe("visual loop config validation", () => {
     expect(trusted.config?.cdpUrl).toBe("http://127.0.0.1:9444/");
   });
 
-  it("fails closed when required user configuration is absent", async () => {
+  it("falls back to the documented default endpoint when no configuration exists", async () => {
     const agentDir = await tempDirectory();
     const cwd = await tempDirectory();
     const result = await loadConfig(agentDir, cwd, true);
+    expect(result.config?.cdpUrl).toBe(DEFAULT_CDP_URL);
+    expect(result.diagnostics.join(" ")).toContain("default CDP endpoint");
+  });
+
+  it("still fails closed when a configuration file is present but unusable", async () => {
+    const agentDir = await tempDirectory();
+    const cwd = await tempDirectory();
+    await writeFile(join(agentDir, "xpi-visualoop.json"), "{ not json");
+    const result = await loadConfig(agentDir, cwd, true);
     expect(result.config).toBeUndefined();
-    expect(result.diagnostics.join(" ")).toContain("not configured");
+    expect(result.diagnostics.join(" ")).toContain("not valid JSON");
   });
 });
