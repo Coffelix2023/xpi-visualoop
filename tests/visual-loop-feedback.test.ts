@@ -603,6 +603,75 @@ describe("visual feedback bridge messages", () => {
     });
   });
 
+  it("returns the cancel follow-up answer inside the same cancelled status", () => {
+    // Reopening, skipping, and not asking again are three answers to one question.
+    // The cancel status is already settled when the answer arrives, so the answer
+    // can only refine it.
+    expect(
+      validateFeedbackBridgeMessage(
+        {
+          reopenRequested: true,
+          suppressForRound: false,
+          type: "cancel",
+        },
+        image,
+      ),
+    ).toEqual({
+      reopenRequested: true,
+      status: "cancelled",
+      suppressForRound: false,
+    });
+    expect(
+      validateFeedbackBridgeMessage(
+        {
+          reopenRequested: false,
+          suppressForRound: false,
+          type: "cancel",
+        },
+        image,
+      ),
+    ).toEqual({
+      reopenRequested: false,
+      status: "cancelled",
+      suppressForRound: false,
+    });
+    expect(
+      validateFeedbackBridgeMessage(
+        {
+          reopenRequested: false,
+          suppressForRound: true,
+          type: "cancel",
+        },
+        image,
+      ),
+    ).toEqual({
+      reopenRequested: false,
+      status: "cancelled",
+      suppressForRound: true,
+    });
+    // Half an answer, or a contradictory one, is a broken message rather than a
+    // fourth answer.
+    expect(() =>
+      validateFeedbackBridgeMessage(
+        {
+          reopenRequested: true,
+          type: "cancel",
+        },
+        image,
+      ),
+    ).toThrow("together");
+    expect(() =>
+      validateFeedbackBridgeMessage(
+        {
+          reopenRequested: true,
+          suppressForRound: true,
+          type: "cancel",
+        },
+        image,
+      ),
+    ).toThrow("cannot both");
+  });
+
   it("accepts only an explicit comparison acceptance message", () => {
     expect(
       validateFeedbackBridgeMessage(
@@ -1030,6 +1099,31 @@ describe("panel copy and theme", () => {
     expect(html).toContain("直接发布");
     // The panel's own copy stays English even when the caller writes Chinese.
     expect(html).toContain(PANEL_COPY.en.submitChoice);
+  });
+
+  it("settles the cancel first, then asks what to do next in the same window", () => {
+    const html = renderFeedbackPanel(base);
+    // Three distinguishable answers to one question, all carrying the cancel status
+    // the panel already settled.
+    expect(html).toContain('id="cancel-dialog"');
+    expect(html).toContain('id="cancel-reopen"');
+    expect(html).toContain('id="cancel-skip"');
+    expect(html).toContain('id="cancel-never"');
+    expect(html).toContain(PANEL_COPY.en.cancelTitle);
+    expect(html).toContain(PANEL_COPY.en.cancelBody);
+    expect(html).toContain("answerCancel(true, false)");
+    expect(html).toContain("answerCancel(false, false)");
+    expect(html).toContain("answerCancel(false, true)");
+    expect(html).toContain('addEventListener("click", openCancel)');
+
+    // Esc on the follow-up closes only the follow-up: that branch sends nothing, so
+    // the panel stays open and unsubmitted instead of producing a second answer.
+    const guard = html.slice(
+      html.indexOf("if (!dialog.hidden)"),
+      html.indexOf('else if (event.key === "Enter"'),
+    );
+    expect(guard).toContain("closeCancel()");
+    expect(guard).not.toContain("send(");
   });
 
   it("carries both palettes and never pairs a transparent surface with a secondary foreground", () => {

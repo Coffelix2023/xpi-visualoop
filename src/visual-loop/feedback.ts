@@ -22,6 +22,12 @@ export const PANEL_COPY: Record<PanelLanguage, Record<string, string>> = {
     accept: "Accept result",
     acceptSide: "Accept {side}",
     cancel: "Cancel",
+    cancelBody:
+      "Cancel is not approval and not rejection. The tool returns cancelled with no feedback. What next?",
+    cancelNever: "Don't ask again this round",
+    cancelReopen: "Reopen the panel",
+    cancelSkip: "Skip this step",
+    cancelTitle: "This review was cancelled",
     candidateList: "Candidate elements",
     chooseOne: "Choose one",
     comment: "Comment",
@@ -57,6 +63,12 @@ export const PANEL_COPY: Record<PanelLanguage, Record<string, string>> = {
     accept: "接受结果",
     acceptSide: "接受 {side}",
     cancel: "取消",
+    cancelBody:
+      "取消不等于认可，也不等于拒绝。工具会返回 cancelled 且不带任何意见。接下来要怎么走？",
+    cancelNever: "本轮不再询问",
+    cancelReopen: "重新打开面板",
+    cancelSkip: "跳过这一步",
+    cancelTitle: "已取消本次评审",
     candidateList: "候选元素",
     chooseOne: "请选择一项",
     comment: "意见",
@@ -366,7 +378,10 @@ export type FeedbackBridgeResult =
       status: "accepted";
     }
   | {
+      /** Present only when the panel asked what to do next after the cancel. */
+      reopenRequested?: boolean;
       status: "cancelled";
+      suppressForRound?: boolean;
     }
   | {
       draft: FeedbackDraft;
@@ -438,6 +453,32 @@ function choiceDraft(
 
 export type FeedbackPanelForm = "capture" | "choice" | "comparison";
 
+/**
+ * A cancel is settled before the panel asks what to do next, so the follow-up answer
+ * can only refine the same `cancelled` result; it can never turn the cancel into
+ * approval, rejection, or a submission. The two flags travel together because one
+ * question produced them.
+ */
+function cancelAnswer(message: Record<string, unknown>): FeedbackBridgeResult {
+  const reopen = message.reopenRequested;
+  const suppress = message.suppressForRound;
+  if (reopen === undefined && suppress === undefined)
+    return {
+      status: "cancelled",
+    };
+  if (typeof reopen !== "boolean" || typeof suppress !== "boolean")
+    throw new Error(
+      "a cancel answer carries reopenRequested and suppressForRound together",
+    );
+  if (reopen && suppress)
+    throw new Error("a cancel answer cannot both reopen the panel and skip the round");
+  return {
+    reopenRequested: reopen,
+    status: "cancelled",
+    suppressForRound: suppress,
+  };
+}
+
 export function validateFeedbackBridgeMessage(
   value: unknown,
   image: Pick<FeedbackImage, "height" | "width">,
@@ -448,10 +489,7 @@ export function validateFeedbackBridgeMessage(
       status: "cancelled",
     };
   const message = objectRecord(value, "feedback message");
-  if (message.type === "cancel")
-    return {
-      status: "cancelled",
-    };
+  if (message.type === "cancel") return cancelAnswer(message);
   if (message.type === "accept") {
     if (form !== "comparison")
       throw new Error("accept is only valid for a comparison panel");
@@ -696,6 +734,13 @@ footer { justify-content: space-between; border-top: 1px solid var(--border); pa
 .picker button:hover, .picker button[aria-current="true"] { background: var(--accent); }
 .picker .handle { font-family: var(--font-mono); overflow-wrap: anywhere; }
 .picker .role { color: var(--muted-foreground); font-size: 11px; margin-left: auto; }
+/* The cancel follow-up is a modal inside the panel's own window, so it can be
+   dismissed without producing a second, contradictory answer. */
+.scrim { align-items: center; background: color-mix(in srgb, var(--background) 70%, transparent); display: flex; inset: 0; justify-content: center; padding: 24px; position: fixed; z-index: 3; }
+.scrim[hidden] { display: none; }
+.dialog { background: var(--popover); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); color: var(--popover-foreground); display: grid; gap: 10px; max-width: 460px; padding: 16px; }
+.dialog h2 { font-size: 13px; margin: 0; }
+.dialog p { color: var(--muted-foreground); font-size: 12px; margin: 0; }
 @media (max-width: 760px) { .comparison-images { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
 </style>
@@ -722,6 +767,13 @@ ${choiceMarkup}
 </section>
 <footer><span class="hint">${hint}</span><div class="actions"><button id="cancel" type="button">${escapeHtml(copy.cancel)}</button><button id="submit" type="button">${escapeHtml(choices ? copy.submitChoice : copy.submitFeedback)}</button>${acceptButton}</div></footer>
 </main>
+    <div id="cancel-dialog" class="scrim" hidden>
+      <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="cancel-title">
+        <h2 id="cancel-title">${escapeHtml(copy.cancelTitle)}</h2>
+        <p>${escapeHtml(copy.cancelBody)}</p>
+        <div class="actions"><button id="cancel-skip" type="button">${escapeHtml(copy.cancelSkip)}</button><button id="cancel-never" type="button">${escapeHtml(copy.cancelNever)}</button><button id="cancel-reopen" class="primary" type="button">${escapeHtml(copy.cancelReopen)}</button></div>
+      </div>
+    </div>
 <script>
 (() => {
   const image = document.getElementById("evidence-image");
@@ -843,10 +895,21 @@ ${choiceMarkup}
       fail(reason instanceof Error ? reason.message : copy.errorFix);
     }
   };
-  document.getElementById("cancel").addEventListener("click", () => send({ type: "cancel" }));
+  // Cancelling settles the status first; the follow-up only asks what to do next, and
+  // answering it is still one cancel message carrying that answer.
+  const dialog = document.getElementById("cancel-dialog");
+  const openCancel = () => { dialog.hidden = false; document.getElementById("cancel-reopen").focus(); };
+  const closeCancel = () => { dialog.hidden = true; };
+  const answerCancel = (reopenRequested, suppressForRound) => send({ type: "cancel", reopenRequested, suppressForRound });
+  document.getElementById("cancel").addEventListener("click", openCancel);
+  document.getElementById("cancel-reopen").addEventListener("click", () => answerCancel(true, false));
+  document.getElementById("cancel-skip").addEventListener("click", () => answerCancel(false, false));
+  document.getElementById("cancel-never").addEventListener("click", () => answerCancel(false, true));
   document.getElementById("submit").addEventListener("click", submit);
   ${comparison ? 'document.getElementById("accept").addEventListener("click", () => send({ type: "accept" }));' : ""}
-  document.addEventListener("keydown", (event) => { if (event.key === "Escape") send({ type: "cancel" }); else if (event.key === "Enter" && event.target !== comment) { event.preventDefault(); submit(); } });
+  // Esc on the follow-up closes only the follow-up: the panel stays open and unsubmitted,
+  // and answering it later is still one cancel message.
+  document.addEventListener("keydown", (event) => { if (!dialog.hidden) { if (event.key === "Escape") { event.preventDefault(); closeCancel(); } return; } if (event.key === "Escape") { event.preventDefault(); openCancel(); } else if (event.key === "Enter" && event.target !== comment) { event.preventDefault(); submit(); } });
   updateSelection();
 })();
 </script>
