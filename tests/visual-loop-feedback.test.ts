@@ -7,7 +7,9 @@ import {
   embedFeedbackImage,
   feedbackPanelInput,
   loadGlimpse,
+  PANEL_COPY,
   renderFeedbackPanel,
+  resolvePanelLanguage,
   validateFeedbackBridgeMessage,
   validateFeedbackDraft,
   waitForFeedbackPanel,
@@ -906,6 +908,146 @@ describe("visual feedback bridge messages", () => {
         image,
       ),
     ).toThrow("bounds");
+  });
+});
+
+describe("panel copy and theme", () => {
+  const base = {
+    capturedAt: "2026-09-09T00:00:00.000Z",
+    captureId: "capture-copy",
+    pageTitle: "Copy",
+    pageUrl: "http://127.0.0.1:8765/",
+    readiness: "ready" as const,
+    readinessReasons: [],
+    image: {
+      height: 100,
+      path: "/tmp/copy.png",
+      width: 150,
+    },
+  };
+
+  it("resolves a declared language, refuses an unknown one, and infers from the locale", () => {
+    expect(resolvePanelLanguage("zh-CN")).toBe("zh-CN");
+    expect(resolvePanelLanguage("en", "zh-CN")).toBe("en");
+    expect(resolvePanelLanguage(undefined, "zh-Hans-CN")).toBe("zh-CN");
+    expect(resolvePanelLanguage(undefined, "de-DE")).toBe("en");
+    expect(() => resolvePanelLanguage("fr")).toThrow("en or zh-CN");
+  });
+
+  it("fills every fixed string in both languages and mixes neither", () => {
+    for (const language of [
+      "en",
+      "zh-CN",
+    ] as const) {
+      const copy = PANEL_COPY[language];
+      for (const [key, value] of Object.entries(copy)) {
+        expect(value.length, `${language}.${key} is empty`).toBeGreaterThan(0);
+      }
+      const other = PANEL_COPY[language === "en" ? "zh-CN" : "en"];
+      const html = renderFeedbackPanel({
+        ...base,
+        language,
+      });
+      // Presence is asserted against the markup rather than the whole document:
+      // "width" and "comment" also occur as identifiers (clientWidth, #feedback-comment),
+      // so a bare substring search would pass without the label being rendered.
+      expect(html).toContain(
+        `<button id="cancel" type="button">${copy.cancel}</button>`,
+      );
+      expect(html).toContain(`<label>${copy.comment}<textarea id="feedback-comment"`);
+      expect(html).toContain(`<label>${copy.width}<input id="region-width"`);
+      expect(html).toContain(`<label>${copy.height}<input id="region-height"`);
+      expect(html).toContain(`aria-label="${copy.regionSelector}"`);
+      expect(html).toContain(`aria-label="${copy.zoomControls}"`);
+      expect(html).toContain(`>${copy.submitFeedback}</button>`);
+
+      // Phrases cannot be mistaken for identifiers, so they carry the leak check.
+      for (const key of [
+        "commentPlaceholder",
+        "dragHint",
+        "regionSelector",
+        "submitFeedback",
+        "zoomControls",
+      ]) {
+        expect(html, `${language} leaked ${key}`).not.toContain(other[key]);
+      }
+    }
+  });
+
+  it("keeps the choice and comparison wording in the same language", () => {
+    const choice = renderFeedbackPanel({
+      ...base,
+      language: "zh-CN",
+      question: "选哪个?",
+      options: [
+        "B1",
+        "B2",
+      ],
+    });
+    expect(choice).toContain(PANEL_COPY["zh-CN"].submitChoice);
+    expect(choice).toContain(PANEL_COPY["zh-CN"].pickHint);
+    expect(choice).not.toContain(PANEL_COPY.en.submitChoice);
+
+    const comparison = renderFeedbackPanel({
+      ...base,
+      language: "zh-CN",
+      comparison: {
+        beforeCaptureId: "capture-before",
+        comparisonId: "comparison-copy",
+        mode: "variant",
+        reasons: [],
+        status: "comparable",
+        beforeImage: {
+          height: 100,
+          path: "/tmp/before.png",
+          width: 150,
+        },
+        labels: [
+          "B1",
+          "B2",
+        ],
+      },
+    });
+    expect(comparison).toContain(
+      PANEL_COPY["zh-CN"].acceptSide.replace("{side}", "B2"),
+    );
+    expect(comparison).toContain(PANEL_COPY["zh-CN"].feedbackTarget);
+    expect(comparison).not.toContain(PANEL_COPY.en.accept);
+  });
+
+  it("renders caller text verbatim, in whatever language the caller wrote it", () => {
+    const html = renderFeedbackPanel({
+      ...base,
+      language: "en",
+      question: "这两版选哪个?",
+      options: [
+        "先修间距",
+        "直接发布",
+      ],
+    });
+    expect(html).toContain("这两版选哪个?");
+    expect(html).toContain("先修间距");
+    expect(html).toContain("直接发布");
+    // The panel's own copy stays English even when the caller writes Chinese.
+    expect(html).toContain(PANEL_COPY.en.submitChoice);
+  });
+
+  it("carries both palettes and never pairs a transparent surface with a secondary foreground", () => {
+    const html = renderFeedbackPanel(base);
+    // Dark values in :root, the light set behind the media query.
+    expect(html.match(/--background:/g)).toHaveLength(2);
+    expect(html).toContain("@media (prefers-color-scheme: light)");
+    expect(html).toContain("oklch(0.2679 0.0036 106.6427)");
+    expect(html).toContain("oklch(0.9818 0.0054 95.0986)");
+    // Every colour is a token now, so no stray hex can fight the theme.
+    expect(html).not.toContain("#2a2a2a");
+    expect(html).not.toContain("#1e1e1e");
+    expect(html).not.toContain("#000");
+    // The rule the prototype taught us, locked in so an edit cannot undo it.
+    expect(html).toContain(
+      ".picker button { align-items: center; background: transparent; border: 0; color: var(--foreground)",
+    );
+    expect(html).not.toContain("--secondary-foreground");
   });
 });
 

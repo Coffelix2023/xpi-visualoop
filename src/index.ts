@@ -12,6 +12,7 @@ import {
   feedbackPanelInput,
   loadGlimpse,
   renderFeedbackPanel,
+  resolvePanelLanguage,
   validateFeedbackBridgeMessage,
   validateFeedbackDraft,
   waitForFeedbackPanel,
@@ -87,6 +88,14 @@ export const FeedbackParameters = Type.Object(
       Type.String({
         maxLength: 160,
         minLength: 1,
+      }),
+    ),
+    language: Type.Optional(
+      Type.String({
+        enum: [
+          "en",
+          "zh-CN",
+        ],
       }),
     ),
     options: Type.Optional(
@@ -589,6 +598,7 @@ export default function xpiVisualoop(pi: ExtensionAPI): void {
       try {
         const reference = feedbackReference(params);
         const decision = feedbackQuestion(params);
+        const language = resolvePanelLanguage(params.language);
         let comparison: Comparison | undefined;
         let before: Capture | undefined;
         let capture: Capture;
@@ -716,6 +726,7 @@ export default function xpiVisualoop(pi: ExtensionAPI): void {
                     question: decision.question,
                   }
                 : {}),
+              language,
             });
             const message = await waitForFeedbackPanel(
               glimpse,

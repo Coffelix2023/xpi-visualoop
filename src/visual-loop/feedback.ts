@@ -11,6 +11,100 @@ import type {
   Region,
 } from "./evidence.ts";
 
+export type PanelLanguage = "en" | "zh-CN";
+
+/**
+ * Every fixed string the panel shows. Caller-supplied question, options and labels are
+ * never translated: they arrive in whatever language the caller wrote them in.
+ */
+export const PANEL_COPY: Record<PanelLanguage, Record<string, string>> = {
+  en: {
+    accept: "Accept result",
+    acceptSide: "Accept {side}",
+    cancel: "Cancel",
+    candidateList: "Candidate elements",
+    chooseOne: "Choose one",
+    comment: "Comment",
+    commentPlaceholder: "Describe the visual change",
+    compareImages: "Compared versions",
+    degraded: "Degraded",
+    dragHint: "Drag on the target image · Enter submit · Esc cancel",
+    errorComment: "Comment must not be blank.",
+    errorCoordinates: "Coordinates must be finite.",
+    errorFix: "Please correct the feedback.",
+    errorInside: "Region must stay inside the screenshot.",
+    errorPick: "Pick one option.",
+    errorPositive: "Region must have positive area.",
+    feedbackTarget: "feedback target",
+    height: "Height",
+    notReviewed: "Not reviewed",
+    optionalNote: "Optional note",
+    pickHint: "Pick one option · Enter submit · Esc cancel",
+    ready: "Ready",
+    regionSelector: "Screenshot region selector",
+    resetZoom: "Reset zoom",
+    submitChoice: "Submit choice",
+    submitFeedback: "Submit feedback",
+    titleChoice: "Visual choice",
+    titleComparison: "Visual comparison",
+    titleFeedback: "Visual feedback",
+    width: "Width",
+    zoomControls: "Zoom controls",
+    zoomIn: "Zoom in",
+    zoomOut: "Zoom out",
+  },
+  "zh-CN": {
+    accept: "接受结果",
+    acceptSide: "接受 {side}",
+    cancel: "取消",
+    candidateList: "候选元素",
+    chooseOne: "请选择一项",
+    comment: "意见",
+    commentPlaceholder: "描述要修改的地方",
+    compareImages: "参与比较的版本",
+    degraded: "降级",
+    dragHint: "在目标图上拖动 · Enter 提交 · Esc 取消",
+    errorComment: "意见不能为空。",
+    errorCoordinates: "坐标必须是有限数值。",
+    errorFix: "请修正后再提交。",
+    errorInside: "区域必须留在截图范围内。",
+    errorPick: "请选择一项。",
+    errorPositive: "区域必须有正的面积。",
+    feedbackTarget: "反馈目标",
+    height: "高",
+    notReviewed: "未验收",
+    optionalNote: "可选备注",
+    pickHint: "选择一项 · Enter 提交 · Esc 取消",
+    ready: "就绪",
+    regionSelector: "截图区域选择器",
+    resetZoom: "重置缩放",
+    submitChoice: "提交选择",
+    submitFeedback: "提交意见",
+    titleChoice: "版本选择",
+    titleComparison: "版本对比",
+    titleFeedback: "视觉反馈",
+    width: "宽",
+    zoomControls: "缩放控件",
+    zoomIn: "放大",
+    zoomOut: "缩小",
+  },
+};
+
+/**
+ * The caller's declaration wins when it is present. Otherwise the panel follows the
+ * runtime locale, which is where a session's language actually shows up.
+ */
+export function resolvePanelLanguage(
+  declared?: string,
+  locale: string = Intl.DateTimeFormat().resolvedOptions().locale,
+): PanelLanguage {
+  if (declared !== undefined) {
+    if (declared === "en" || declared === "zh-CN") return declared;
+    throw new Error("panel language must be en or zh-CN");
+  }
+  return locale.toLowerCase().startsWith("zh") ? "zh-CN" : "en";
+}
+
 export interface FeedbackImage {
   /** Output pixels per page coordinate unit. Absent means 1:1. */
   coordinateScale?: {
@@ -43,6 +137,8 @@ export interface FeedbackPanelInput {
   image: FeedbackImage;
   imageData?: string;
   imagePath?: string;
+  /** Resolved by the caller; the panel falls back to English when it is absent. */
+  language?: PanelLanguage;
   options?: string[];
   pageTitle: string;
   pageUrl: string;
@@ -421,6 +517,10 @@ export function renderFeedbackPanel(input: FeedbackPanelInput): string {
   const comparison = input.comparison;
   const choices = input.options;
   const question = input.question;
+  // The panel's own copy follows the resolved language; the caller's question, options
+  // and labels are never translated.
+  const language: PanelLanguage = input.language ?? "en";
+  const copy = PANEL_COPY[language];
   // A variant comparison names its sides with the caller's labels; without labels
   // the fallback is positional, never a claim about which came first.
   const sideLabels: [
@@ -481,21 +581,21 @@ export function renderFeedbackPanel(input: FeedbackPanelInput): string {
   ]
     .map((reason) => `<li>${escapeHtml(reason)}</li>`)
     .join("");
-  const status = input.readiness === "ready" ? "Ready" : "Degraded";
+  const status = input.readiness === "ready" ? copy.ready : copy.degraded;
   const src = escapeHtml(imageSource(image, input.imageData, input.imagePath));
   const beforeSrc = comparison
     ? escapeHtml(imageSource(comparison.beforeImage, comparison.beforeImageData))
     : undefined;
   const imageContent = comparison
-    ? `<section class="comparison-images" aria-label="Compared versions">
+    ? `<section class="comparison-images" aria-label="${escapeHtml(copy.compareImages)}">
 <figure><figcaption>${escapeHtml(sideLabels[0])} · ${escapeHtml(comparison.beforeCaptureId)}</figcaption><div class="shot"><img id="before-image" draggable="false" alt="${escapeHtml(sideLabels[0])} page screenshot" src="${beforeSrc}" width="${comparison.beforeImage.width}" height="${comparison.beforeImage.height}"></div></figure>
-<figure><figcaption>${escapeHtml(sideLabels[1])} · ${escapeHtml(input.captureId)} · feedback target</figcaption><div id="image-scroll" class="shot" aria-label="${escapeHtml(sideLabels[1])} screenshot region selector"><div id="image-stage"><img id="evidence-image" draggable="false" alt="${escapeHtml(sideLabels[1])} page screenshot" src="${src}" width="${image.width}" height="${image.height}">${hotspotMarkup}<div id="selection"></div><div id="hotspot-label" class="hotspot-label"></div></div></div></figure>
+<figure><figcaption>${escapeHtml(sideLabels[1])} · ${escapeHtml(input.captureId)} · ${escapeHtml(copy.feedbackTarget)}</figcaption><div id="image-scroll" class="shot" aria-label="${escapeHtml(copy.regionSelector)}"><div id="image-stage"><img id="evidence-image" draggable="false" alt="${escapeHtml(sideLabels[1])} page screenshot" src="${src}" width="${image.width}" height="${image.height}">${hotspotMarkup}<div id="selection"></div><div id="hotspot-label" class="hotspot-label"></div></div></div></figure>
 </section>`
-    : `<section id="image-scroll" class="shot single" aria-label="Screenshot region selector"><div id="image-stage"><img id="evidence-image" draggable="false" alt="Captured page screenshot" src="${src}" width="${image.width}" height="${image.height}">${hotspotMarkup}<div id="selection"></div><div id="hotspot-label" class="hotspot-label"></div></div></section>`;
-  let title = choices ? "Visual choice" : "Visual feedback";
-  if (comparison) title = "Visual comparison";
+    : `<section id="image-scroll" class="shot single" aria-label="${escapeHtml(copy.regionSelector)}"><div id="image-stage"><img id="evidence-image" draggable="false" alt="Captured page screenshot" src="${src}" width="${image.width}" height="${image.height}">${hotspotMarkup}<div id="selection"></div><div id="hotspot-label" class="hotspot-label"></div></div></section>`;
+  let title = choices ? copy.titleChoice : copy.titleFeedback;
+  if (comparison) title = copy.titleComparison;
   const identity = comparison
-    ? `${comparison.comparisonId} · ${comparison.status} · Not reviewed`
+    ? `${comparison.comparisonId} · ${comparison.status} · ${copy.notReviewed}`
     : `${input.captureId} · ${status} · ${input.capturedAt}`;
   const choiceMarkup =
     choices && choices.length > 0
@@ -506,59 +606,96 @@ export function renderFeedbackPanel(input: FeedbackPanelInput): string {
           )
           .join("")}</fieldset>`
       : "";
-  const hint = choices
-    ? "Pick one option · Enter submit · Esc cancel"
-    : "Drag on the target image · Enter submit · Esc cancel";
+  const hint = choices ? copy.pickHint : copy.dragHint;
   const acceptLabel =
-    comparison?.mode === "variant" ? `Accept ${sideLabels[1]}` : "Accept result";
+    comparison?.mode === "variant"
+      ? copy.acceptSide.replace("{side}", sideLabels[1])
+      : copy.accept;
   const acceptButton = comparison
     ? `<button id="accept" class="primary" type="button">${escapeHtml(acceptLabel)}</button>`
     : "";
   return `<!doctype html>
-<html lang="en">
+<html lang="${language}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-:root { color-scheme: dark light; --canvas: #1e1e1e; --ink: #d4d4d4; --muted: #808080; --rule: #3c3c3c; --primary: #3b82f6; --error: #f44747; }
+:root { color-scheme: dark light;
+  --background: oklch(0.2679 0.0036 106.6427);
+  --foreground: oklch(0.8074 0.0142 93.0137);
+  --card: oklch(0.2679 0.0036 106.6427);
+  --card-foreground: oklch(0.9818 0.0054 95.0986);
+  --popover: oklch(0.3085 0.0035 106.6039);
+  --popover-foreground: oklch(0.9211 0.0040 106.4781);
+  --primary: oklch(0.6724 0.1308 38.7559);
+  --primary-foreground: oklch(1.0000 0 0);
+  --muted-foreground: oklch(0.7713 0.0169 99.0657);
+  --accent: oklch(0.2130 0.0078 95.4245);
+  --border: oklch(0.3618 0.0101 106.8928);
+  --input: oklch(0.4336 0.0113 100.2195);
+  --ring: oklch(0.6724 0.1308 38.7559);
+  --destructive: oklch(0.6368 0.2078 25.3313);
+  --radius: 0.5rem;
+  --shadow: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 1px 2px -1px hsl(0 0% 0% / 0.10);
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace; }
+@media (prefers-color-scheme: light) { :root {
+  --background: oklch(0.9818 0.0054 95.0986);
+  --foreground: oklch(0.3438 0.0269 95.7226);
+  --card: oklch(0.9818 0.0054 95.0986);
+  --card-foreground: oklch(0.1908 0.0020 106.5859);
+  --popover: oklch(1.0000 0 0);
+  --popover-foreground: oklch(0.2671 0.0196 98.9390);
+  --primary: oklch(0.6171 0.1375 39.0427);
+  --primary-foreground: oklch(1.0000 0 0);
+  --muted-foreground: oklch(0.6059 0.0075 97.4233);
+  --accent: oklch(0.9245 0.0138 92.9892);
+  --border: oklch(0.8847 0.0069 97.3627);
+  --input: oklch(0.7621 0.0156 98.3528);
+  --ring: oklch(0.6171 0.1375 39.0427);
+  --destructive: oklch(0.1908 0.0020 106.5859);
+  --shadow: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 1px 2px -1px hsl(0 0% 0% / 0.10); } }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--canvas); color: var(--ink); font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
+body { margin: 0; background: var(--background); color: var(--foreground); font: 13px var(--font-mono); }
 main { display: flex; flex-direction: column; gap: 12px; height: 100vh; padding: 16px; }
 header, footer { display: flex; align-items: center; gap: 10px; }
-header { justify-content: space-between; border-bottom: 1px solid var(--rule); padding-bottom: 10px; }
+header { justify-content: space-between; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
 h1 { font-size: 14px; margin: 0; }
-.meta, .hint { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
-button, input, textarea { color: inherit; background: #2a2a2a; border: 1px solid var(--rule); border-radius: 4px; font: inherit; }
+.meta, .hint { color: var(--muted-foreground); font-size: 11px; overflow-wrap: anywhere; }
+/* Solid controls pair with the surface they sit on; a transparent control uses the
+   foreground token, because a palette's secondary foreground can be invisible on a
+   light surface. */
+button, input, textarea { color: var(--card-foreground); background: var(--card); border: 1px solid var(--input); border-radius: calc(var(--radius) - 2px); font: inherit; }
 button { cursor: pointer; padding: 6px 10px; }
-button.primary { background: var(--primary); border-color: var(--primary); color: white; }
-button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+button.primary { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .comparison-images { display: grid; flex: 1; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-height: 120px; }
 figure { display: flex; flex-direction: column; gap: 6px; margin: 0; min-width: 0; min-height: 0; }
-figcaption { color: var(--muted); font-size: 11px; }
-.shot { min-height: 120px; overflow: auto; border: 1px solid var(--rule); padding: 12px; }
+figcaption { color: var(--muted-foreground); font-size: 11px; }
+.shot { min-height: 120px; overflow: auto; border: 1px solid var(--border); padding: 12px; }
 .shot.single { flex: 1; }
 #image-stage { position: relative; width: max-content; min-width: 1px; }
 /* user-select only blocks text selection; -webkit-user-drag is what stops the native image drag. */
 #before-image, #evidence-image { display: block; max-width: none; user-select: none; -webkit-user-drag: none; }
 #selection { position: absolute; display: none; border: 2px solid var(--primary); background: color-mix(in srgb, var(--primary) 20%, transparent); pointer-events: none; }
 .fields { display: grid; grid-template-columns: repeat(4, minmax(60px, 1fr)); gap: 8px; }
-label { display: grid; gap: 4px; color: var(--muted); font-size: 11px; }
+label { display: grid; gap: 4px; color: var(--muted-foreground); font-size: 11px; }
 input { min-width: 0; padding: 6px; }
 textarea { width: 100%; min-height: 64px; resize: vertical; padding: 8px; }
-footer { justify-content: space-between; border-top: 1px solid var(--rule); padding-top: 10px; }
+footer { justify-content: space-between; border-top: 1px solid var(--border); padding-top: 10px; }
 .actions { display: flex; gap: 8px; }
-.choices { border: 1px solid var(--rule); border-radius: 4px; display: grid; gap: 6px; margin: 0; padding: 10px; }
-.choices legend { color: var(--muted); font-size: 11px; padding: 0 4px; }
-.choices label { align-items: center; color: var(--ink); display: flex; font-size: 12px; gap: 8px; }
+.choices { border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); display: grid; gap: 6px; margin: 0; padding: 10px; }
+.choices legend { color: var(--muted-foreground); font-size: 11px; padding: 0 4px; }
+.choices label { align-items: center; color: var(--foreground); display: flex; font-size: 12px; gap: 8px; }
 .hotspot { background: transparent; border: 1px dashed transparent; border-radius: 2px; cursor: crosshair; padding: 0; position: absolute; }
 .hotspot:hover, .hotspot:focus-visible { background: color-mix(in srgb, var(--primary) 18%, transparent); border-color: var(--primary); }
 .hotspot[aria-current="true"] { background: color-mix(in srgb, var(--primary) 26%, transparent); border-color: var(--primary); border-style: solid; }
-.hotspot-label { background: #000; border: 1px solid var(--rule); border-radius: 3px; color: var(--ink); display: none; font-size: 11px; padding: 2px 6px; pointer-events: none; position: absolute; white-space: nowrap; z-index: 2; }
-.picker { border: 1px solid var(--rule); border-radius: 4px; display: grid; gap: 4px; max-height: 150px; overflow: auto; padding: 8px; }
-.picker button { align-items: center; background: transparent; border: 0; color: var(--ink); display: flex; font: inherit; gap: 8px; padding: 3px 4px; text-align: left; width: 100%; }
-.picker button:hover, .picker button[aria-current="true"] { background: #2a2a2a; }
-.picker .handle { font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
-.picker .role { color: var(--muted); font-size: 11px; margin-left: auto; }
+.hotspot-label { background: var(--popover); border: 1px solid var(--border); border-radius: calc(var(--radius) - 4px); box-shadow: var(--shadow); color: var(--popover-foreground); display: none; font-size: 11px; padding: 2px 6px; pointer-events: none; position: absolute; white-space: nowrap; z-index: 2; }
+.picker { border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); display: grid; gap: 4px; max-height: 150px; overflow: auto; padding: 8px; }
+/* Transparent surface: the foreground token, never a palette's secondary foreground. */
+.picker button { align-items: center; background: transparent; border: 0; color: var(--foreground); display: flex; font: inherit; gap: 8px; padding: 3px 4px; text-align: left; width: 100%; }
+.picker button:hover, .picker button[aria-current="true"] { background: var(--accent); }
+.picker .handle { font-family: var(--font-mono); overflow-wrap: anywhere; }
+.picker .role { color: var(--muted-foreground); font-size: 11px; margin-left: auto; }
 @media (max-width: 760px) { .comparison-images { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
 </style>
@@ -567,23 +704,23 @@ footer { justify-content: space-between; border-top: 1px solid var(--rule); padd
 <main>
 <header>
   <div><h1>${title}</h1><div class="meta">${escapeHtml(identity)}</div></div>
-  <div class="actions" aria-label="Zoom controls"><button id="zoom-out" type="button" title="Zoom out">A−</button><button id="zoom-reset" type="button" title="Reset zoom">⟲</button><button id="zoom-in" type="button" title="Zoom in">A+</button></div>
+  <div class="actions" aria-label="${escapeHtml(copy.zoomControls)}"><button id="zoom-out" type="button" title="${escapeHtml(copy.zoomOut)}">A−</button><button id="zoom-reset" type="button" title="${escapeHtml(copy.resetZoom)}">⟲</button><button id="zoom-in" type="button" title="${escapeHtml(copy.zoomIn)}">A+</button></div>
 </header>
 <section class="meta"><div>${escapeHtml(input.pageTitle)}</div><div>${escapeHtml(input.pageUrl)}</div>${reasons ? `<ul>${reasons}</ul>` : ""}</section>
 ${imageContent}
-${candidateMarkup ? `<section class="picker" aria-label="Candidate elements">${candidateMarkup}</section>` : ""}
+${candidateMarkup ? `<section class="picker" aria-label="${escapeHtml(copy.candidateList)}">${candidateMarkup}</section>` : ""}
 <section>
 ${choiceMarkup}
 <div class="fields">
 <label>X<input id="region-x" type="number" min="0" step="1" value="0"></label>
 <label>Y<input id="region-y" type="number" min="0" step="1" value="0"></label>
-<label>Width<input id="region-width" type="number" min="1" step="1" value="1"></label>
-<label>Height<input id="region-height" type="number" min="1" step="1" value="1"></label>
+<label>${escapeHtml(copy.width)}<input id="region-width" type="number" min="1" step="1" value="1"></label>
+<label>${escapeHtml(copy.height)}<input id="region-height" type="number" min="1" step="1" value="1"></label>
 </div>
-<label>Comment<textarea id="feedback-comment" maxlength="2000"${choices ? "" : " autofocus"} placeholder="${choices ? "Optional note" : "Describe the visual change"}"></textarea></label>
+<label>${escapeHtml(copy.comment)}<textarea id="feedback-comment" maxlength="2000"${choices ? "" : " autofocus"} placeholder="${escapeHtml(choices ? copy.optionalNote : copy.commentPlaceholder)}"></textarea></label>
 <div id="error" class="hint" role="alert" aria-live="polite"></div>
 </section>
-<footer><span class="hint">${hint}</span><div class="actions"><button id="cancel" type="button">Cancel</button><button id="submit" type="button">${choices ? "Submit choice" : "Submit feedback"}</button>${acceptButton}</div></footer>
+<footer><span class="hint">${hint}</span><div class="actions"><button id="cancel" type="button">${escapeHtml(copy.cancel)}</button><button id="submit" type="button">${escapeHtml(choices ? copy.submitChoice : copy.submitFeedback)}</button>${acceptButton}</div></footer>
 </main>
 <script>
 (() => {
@@ -591,6 +728,7 @@ ${choiceMarkup}
   const selection = document.getElementById("selection");
   const comment = document.getElementById("feedback-comment");
   const fields = ["x", "y", "width", "height"].reduce((all, key) => { all[key] = document.getElementById("region-" + key); return all; }, {});
+  const copy = ${json(copy)};
   const source = ${json({
     height: image.height,
     width: image.width,
@@ -685,7 +823,7 @@ ${choiceMarkup}
     try {
       if (choiceMode) {
         const picked = document.querySelector('input[name="choice"]:checked');
-        if (!picked) throw new Error("Pick one option.");
+        if (!picked) throw new Error(copy.errorPick);
         const answer = { type: "choice", choice: picked.value };
         const identity = pickedTarget();
         if (identity) { answer.source = "pick"; answer.target = identity; }
@@ -695,14 +833,14 @@ ${choiceMarkup}
         return;
       }
       const value = region();
-      if (!comment.value.trim()) throw new Error("Comment must not be blank.");
-      if (![value.x, value.y, value.width, value.height].every(Number.isFinite)) throw new Error("Coordinates must be finite.");
-      if (value.width <= 0 || value.height <= 0) throw new Error("Region must have positive area.");
-      if (value.x < 0 || value.y < 0 || value.x + value.width > source.width || value.y + value.height > source.height) throw new Error("Region must stay inside the screenshot.");
+      if (!comment.value.trim()) throw new Error(copy.errorComment);
+      if (![value.x, value.y, value.width, value.height].every(Number.isFinite)) throw new Error(copy.errorCoordinates);
+      if (value.width <= 0 || value.height <= 0) throw new Error(copy.errorPositive);
+      if (value.x < 0 || value.y < 0 || value.x + value.width > source.width || value.y + value.height > source.height) throw new Error(copy.errorInside);
       const pickedIdentity = pickedTarget();
       send({ type: "submit", comment: comment.value, region: value, source: pickedIdentity ? "pick" : "drag", ...(pickedIdentity ? { target: pickedIdentity } : {}) });
     } catch (reason) {
-      fail(reason instanceof Error ? reason.message : "Please correct the feedback.");
+      fail(reason instanceof Error ? reason.message : copy.errorFix);
     }
   };
   document.getElementById("cancel").addEventListener("click", () => send({ type: "cancel" }));
