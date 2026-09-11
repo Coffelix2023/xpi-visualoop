@@ -64,6 +64,7 @@
       "!**/backend",
       "!**/__fixtures__",
       "!docs/references",
+      "!docs/design", //排除设计产物(原型/mockup), 与 docs/references 同类
       "!src/components/ui", //排除 shadcn-ui
       "!src/components/assistant-ui", //排除 assistant-ui
       "!src/components/animate-ui", //排除 animate-ui
