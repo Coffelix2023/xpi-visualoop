@@ -17,3 +17,6 @@ coverage/
 
 #c6x-config
 .pi-lens.json
+**/fast-fixes/
+**/report*/
+**/references/
