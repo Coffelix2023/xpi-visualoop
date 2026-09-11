@@ -441,6 +441,34 @@ export function renderFeedbackPanel(input: FeedbackPanelInput): string {
         "Before",
         "After",
       ];
+  // Candidate boxes arrive in page coordinates while the panel shows image pixels, so
+  // a scaled export has to be mapped here or the hotspot drifts off its element.
+  const scale = image.coordinateScale ?? {
+    x: 1,
+    y: 1,
+  };
+  const hotspots = (input.candidates ?? []).map((candidate, index) => ({
+    height: Math.round(candidate.visibleBounds.height * scale.y),
+    index,
+    role: candidate.role,
+    selector: candidate.selector,
+    text: candidate.text,
+    width: Math.round(candidate.visibleBounds.width * scale.x),
+    x: Math.round(candidate.visibleBounds.x * scale.x),
+    y: Math.round(candidate.visibleBounds.y * scale.y),
+  }));
+  const hotspotMarkup = hotspots
+    .map(
+      (hotspot) =>
+        `<button class="hotspot" data-hotspot="${hotspot.index}" type="button" aria-label="${escapeHtml(hotspot.selector)}" style="height:${hotspot.height}px;left:${hotspot.x}px;top:${hotspot.y}px;width:${hotspot.width}px"></button>`,
+    )
+    .join("");
+  const candidateMarkup = hotspots
+    .map(
+      (hotspot) =>
+        `<button class="candidate" data-candidate="${hotspot.index}" type="button"><span class="handle">${escapeHtml(hotspot.selector)}</span><span class="role">${escapeHtml(hotspot.role)}</span></button>`,
+    )
+    .join("");
   if (comparison) {
     finite(comparison.beforeImage.width, "beforeImage.width");
     finite(comparison.beforeImage.height, "beforeImage.height");
@@ -461,9 +489,9 @@ export function renderFeedbackPanel(input: FeedbackPanelInput): string {
   const imageContent = comparison
     ? `<section class="comparison-images" aria-label="Compared versions">
 <figure><figcaption>${escapeHtml(sideLabels[0])} · ${escapeHtml(comparison.beforeCaptureId)}</figcaption><div class="shot"><img id="before-image" draggable="false" alt="${escapeHtml(sideLabels[0])} page screenshot" src="${beforeSrc}" width="${comparison.beforeImage.width}" height="${comparison.beforeImage.height}"></div></figure>
-<figure><figcaption>${escapeHtml(sideLabels[1])} · ${escapeHtml(input.captureId)} · feedback target</figcaption><div id="image-scroll" class="shot" aria-label="${escapeHtml(sideLabels[1])} screenshot region selector"><div id="image-stage"><img id="evidence-image" draggable="false" alt="${escapeHtml(sideLabels[1])} page screenshot" src="${src}" width="${image.width}" height="${image.height}"><div id="selection"></div></div></div></figure>
+<figure><figcaption>${escapeHtml(sideLabels[1])} · ${escapeHtml(input.captureId)} · feedback target</figcaption><div id="image-scroll" class="shot" aria-label="${escapeHtml(sideLabels[1])} screenshot region selector"><div id="image-stage"><img id="evidence-image" draggable="false" alt="${escapeHtml(sideLabels[1])} page screenshot" src="${src}" width="${image.width}" height="${image.height}">${hotspotMarkup}<div id="selection"></div><div id="hotspot-label" class="hotspot-label"></div></div></div></figure>
 </section>`
-    : `<section id="image-scroll" class="shot single" aria-label="Screenshot region selector"><div id="image-stage"><img id="evidence-image" draggable="false" alt="Captured page screenshot" src="${src}" width="${image.width}" height="${image.height}"><div id="selection"></div></div></section>`;
+    : `<section id="image-scroll" class="shot single" aria-label="Screenshot region selector"><div id="image-stage"><img id="evidence-image" draggable="false" alt="Captured page screenshot" src="${src}" width="${image.width}" height="${image.height}">${hotspotMarkup}<div id="selection"></div><div id="hotspot-label" class="hotspot-label"></div></div></section>`;
   let title = choices ? "Visual choice" : "Visual feedback";
   if (comparison) title = "Visual comparison";
   const identity = comparison
@@ -522,6 +550,15 @@ footer { justify-content: space-between; border-top: 1px solid var(--rule); padd
 .choices { border: 1px solid var(--rule); border-radius: 4px; display: grid; gap: 6px; margin: 0; padding: 10px; }
 .choices legend { color: var(--muted); font-size: 11px; padding: 0 4px; }
 .choices label { align-items: center; color: var(--ink); display: flex; font-size: 12px; gap: 8px; }
+.hotspot { background: transparent; border: 1px dashed transparent; border-radius: 2px; cursor: crosshair; padding: 0; position: absolute; }
+.hotspot:hover, .hotspot:focus-visible { background: color-mix(in srgb, var(--primary) 18%, transparent); border-color: var(--primary); }
+.hotspot[aria-current="true"] { background: color-mix(in srgb, var(--primary) 26%, transparent); border-color: var(--primary); border-style: solid; }
+.hotspot-label { background: #000; border: 1px solid var(--rule); border-radius: 3px; color: var(--ink); display: none; font-size: 11px; padding: 2px 6px; pointer-events: none; position: absolute; white-space: nowrap; z-index: 2; }
+.picker { border: 1px solid var(--rule); border-radius: 4px; display: grid; gap: 4px; max-height: 150px; overflow: auto; padding: 8px; }
+.picker button { align-items: center; background: transparent; border: 0; color: var(--ink); display: flex; font: inherit; gap: 8px; padding: 3px 4px; text-align: left; width: 100%; }
+.picker button:hover, .picker button[aria-current="true"] { background: #2a2a2a; }
+.picker .handle { font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+.picker .role { color: var(--muted); font-size: 11px; margin-left: auto; }
 @media (max-width: 760px) { .comparison-images { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
 </style>
@@ -534,6 +571,7 @@ footer { justify-content: space-between; border-top: 1px solid var(--rule); padd
 </header>
 <section class="meta"><div>${escapeHtml(input.pageTitle)}</div><div>${escapeHtml(input.pageUrl)}</div>${reasons ? `<ul>${reasons}</ul>` : ""}</section>
 ${imageContent}
+${candidateMarkup ? `<section class="picker" aria-label="Candidate elements">${candidateMarkup}</section>` : ""}
 <section>
 ${choiceMarkup}
 <div class="fields">
@@ -562,6 +600,12 @@ ${choiceMarkup}
   let sent = false;
   const choiceMode = ${choices ? "true" : "false"};
   let regionTouched = false;
+  const boxes = ${json(hotspots)};
+  const label = document.getElementById("hotspot-label");
+  // The image's parent is the stage that positions every overlay.
+  const stage = document.getElementById("image-stage") ?? image.parentElement;
+  let dragged = false;
+  let pickedIndex = -1;
   const number = (key) => Number(fields[key].value);
   const region = () => ({ x: number("x"), y: number("y"), width: number("width"), height: number("height") });
   const updateSelection = () => {
@@ -574,12 +618,63 @@ ${choiceMarkup}
   };
   const sourcePoint = (event) => { const rect = image.getBoundingClientRect(); return { x: (event.clientX - rect.left) * source.width / rect.width, y: (event.clientY - rect.top) * source.height / rect.height }; };
   const send = (message) => { if (!sent) { sent = true; window.glimpse.send(message); } };
-  image.addEventListener("pointerdown", (event) => { event.preventDefault(); start = sourcePoint(event); image.setPointerCapture(event.pointerId); });
+  const pickedTarget = () => (pickedIndex >= 0 && boxes[pickedIndex] ? { role: boxes[pickedIndex].role, selector: boxes[pickedIndex].selector, text: boxes[pickedIndex].text } : null);
+  const markCurrent = () => {
+    for (const node of document.querySelectorAll("[data-hotspot]")) node.setAttribute("aria-current", String(Number(node.dataset.hotspot) === pickedIndex));
+    for (const node of document.querySelectorAll("[data-candidate]")) node.setAttribute("aria-current", String(Number(node.dataset.candidate) === pickedIndex));
+  };
+  const pick = (index) => {
+    const box = boxes[index];
+    if (!box) return;
+    pickedIndex = index;
+    regionTouched = true;
+    fields.x.value = String(box.x);
+    fields.y.value = String(box.y);
+    fields.width.value = String(box.width);
+    fields.height.value = String(box.height);
+    markCurrent();
+    updateSelection();
+  };
+  const clearPick = () => {
+    if (pickedIndex < 0) return;
+    pickedIndex = -1;
+    markCurrent();
+  };
+  const showLabel = (index) => {
+    const box = boxes[index];
+    if (!box || !label) return;
+    label.textContent = box.selector + " · " + box.role;
+    label.style.display = "block";
+    label.style.left = box.x + "px";
+    label.style.top = Math.max(0, box.y - 20) + "px";
+  };
+  const hideLabel = () => { if (label) label.style.display = "none"; };
+  // The stage owns the drag, not the image: the hotspot layer sits above the image, so a
+  // press that starts on a hotspot must still be able to draw a region.
+  stage.addEventListener("pointerdown", (event) => { event.preventDefault(); dragged = false; start = sourcePoint(event); stage.setPointerCapture(event.pointerId); });
   // Belt and braces: the attribute and the CSS rule are the other two guards, and the
   // dragstart handler still holds if the stylesheet is ever regenerated without them.
   image.addEventListener("dragstart", (event) => event.preventDefault());
-  image.addEventListener("pointermove", (event) => { if (!start) return; const end = sourcePoint(event); regionTouched = true; fields.x.value = String(Math.round(Math.min(start.x, end.x))); fields.y.value = String(Math.round(Math.min(start.y, end.y))); fields.width.value = String(Math.round(Math.abs(end.x - start.x))); fields.height.value = String(Math.round(Math.abs(end.y - start.y))); updateSelection(); });
-  image.addEventListener("pointerup", () => { start = null; });
+  stage.addEventListener("pointermove", (event) => { if (!start) return; const end = sourcePoint(event); dragged = true; regionTouched = true; clearPick(); fields.x.value = String(Math.round(Math.min(start.x, end.x))); fields.y.value = String(Math.round(Math.min(start.y, end.y))); fields.width.value = String(Math.round(Math.abs(end.x - start.x))); fields.height.value = String(Math.round(Math.abs(end.y - start.y))); updateSelection(); });
+  stage.addEventListener("pointerup", () => { start = null; });
+  for (const node of document.querySelectorAll("[data-hotspot]")) {
+    node.addEventListener("pointerenter", () => showLabel(Number(node.dataset.hotspot)));
+    node.addEventListener("pointerleave", hideLabel);
+    node.addEventListener("focus", () => showLabel(Number(node.dataset.hotspot)));
+    node.addEventListener("blur", hideLabel);
+    node.addEventListener("click", () => { if (!dragged) pick(Number(node.dataset.hotspot)); });
+  }
+  const candidateNodes = Array.from(document.querySelectorAll("[data-candidate]"));
+  for (const node of candidateNodes) {
+    node.addEventListener("click", () => pick(Number(node.dataset.candidate)));
+    node.addEventListener("keydown", (event) => {
+      const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+      if (step === 0) return;
+      event.preventDefault();
+      const next = candidateNodes[Math.max(0, Math.min(candidateNodes.length - 1, candidateNodes.indexOf(node) + step))];
+      if (next) { pick(Number(next.dataset.candidate)); next.focus(); }
+    });
+  }
   Object.values(fields).forEach((field) => field.addEventListener("input", () => { regionTouched = true; updateSelection(); }));
   document.getElementById("zoom-out").addEventListener("click", () => { zoom = Math.max(0.8, zoom - 0.1); document.body.style.zoom = zoom; });
   document.getElementById("zoom-reset").addEventListener("click", () => { zoom = 1; document.body.style.zoom = zoom; });
@@ -592,6 +687,8 @@ ${choiceMarkup}
         const picked = document.querySelector('input[name="choice"]:checked');
         if (!picked) throw new Error("Pick one option.");
         const answer = { type: "choice", choice: picked.value };
+        const identity = pickedTarget();
+        if (identity) { answer.source = "pick"; answer.target = identity; }
         if (regionTouched) answer.region = region();
         if (comment.value.trim()) answer.comment = comment.value;
         send(answer);
@@ -602,7 +699,8 @@ ${choiceMarkup}
       if (![value.x, value.y, value.width, value.height].every(Number.isFinite)) throw new Error("Coordinates must be finite.");
       if (value.width <= 0 || value.height <= 0) throw new Error("Region must have positive area.");
       if (value.x < 0 || value.y < 0 || value.x + value.width > source.width || value.y + value.height > source.height) throw new Error("Region must stay inside the screenshot.");
-      send({ type: "submit", comment: comment.value, region: value });
+      const pickedIdentity = pickedTarget();
+      send({ type: "submit", comment: comment.value, region: value, source: pickedIdentity ? "pick" : "drag", ...(pickedIdentity ? { target: pickedIdentity } : {}) });
     } catch (reason) {
       fail(reason instanceof Error ? reason.message : "Please correct the feedback.");
     }

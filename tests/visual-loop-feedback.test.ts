@@ -324,7 +324,8 @@ describe("visual feedback panel HTML", () => {
     ]) {
       expect(html).toContain("-webkit-user-drag: none");
       expect(html).toContain('addEventListener("dragstart"');
-      expect(html).toContain("event.preventDefault(); start = sourcePoint");
+      expect(html).toContain("event.preventDefault()");
+      expect(html).toContain("start = sourcePoint(event)");
       // Counting rather than spot-checking: a panel image added later without
       // the attribute fails this even if the CSS rule is still in place.
       expect(html.match(/draggable="false"/g)?.length).toBe(
@@ -453,6 +454,85 @@ describe("visual feedback panel HTML", () => {
     expect(regression).toContain("Before");
     expect(regression).toContain("After");
     expect(regression).toContain("Accept result");
+  });
+
+  it("scales candidate boxes into image pixels", () => {
+    const candidate = {
+      role: "button",
+      selector: "#save-button",
+      text: "Save changes",
+      bounds: {
+        height: 80,
+        width: 200,
+        x: 100,
+        y: 40,
+      },
+      documentBounds: {
+        height: 80,
+        width: 200,
+        x: 100,
+        y: 40,
+      },
+      visibleBounds: {
+        height: 80,
+        width: 200,
+        x: 100,
+        y: 40,
+      },
+    };
+    const base = {
+      capturedAt: "2026-09-09T00:00:00.000Z",
+      captureId: "capture-hotspots",
+      pageTitle: "Hotspots",
+      pageUrl: "http://127.0.0.1:8765/",
+      readiness: "ready" as const,
+      readinessReasons: [],
+      candidates: [
+        candidate,
+      ],
+    };
+
+    const scaled = renderFeedbackPanel({
+      ...base,
+      image: {
+        height: 100,
+        path: "/tmp/hotspots.png",
+        width: 150,
+        coordinateScale: {
+          x: 0.5,
+          y: 0.5,
+        },
+      },
+    });
+    // The exported image is half the page's pixels, so the box halves with it and a
+    // pick lands on the same place the element occupies in the picture.
+    expect(scaled).toContain("height:40px;left:50px;top:20px;width:100px");
+    expect(scaled).toContain('data-hotspot="0"');
+    expect(scaled).toContain('data-candidate="0"');
+    expect(scaled).toContain("#save-button");
+    expect(scaled).toContain("Save changes");
+
+    const unscaled = renderFeedbackPanel({
+      ...base,
+      image: {
+        height: 100,
+        path: "/tmp/hotspots.png",
+        width: 150,
+      },
+    });
+    expect(unscaled).toContain("height:80px;left:100px;top:40px;width:200px");
+
+    const none = renderFeedbackPanel({
+      ...base,
+      candidates: [],
+      image: {
+        height: 100,
+        path: "/tmp/hotspots.png",
+        width: 150,
+      },
+    });
+    expect(none).not.toContain("data-hotspot=");
+    expect(none).not.toContain('class="picker"');
   });
 });
 
