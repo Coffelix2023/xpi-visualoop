@@ -275,6 +275,128 @@ describe("visual feedback panel HTML", () => {
       );
     }
   });
+
+  it("renders a structured choice without requiring a region", () => {
+    const html = renderFeedbackPanel({
+      capturedAt: "2026-09-09T00:00:00.000Z",
+      captureId: "capture-choice",
+      imagePath: "/tmp/choice.png",
+      pageTitle: "Choice",
+      pageUrl: "http://127.0.0.1:8765/",
+      question: 'Pick one <img src=x onerror="alert(1)">',
+      readiness: "ready",
+      readinessReasons: [],
+      image: {
+        height: 200,
+        width: 300,
+      },
+      options: [
+        "Fix <script>alert(1)</script>",
+        "Ship as is",
+      ],
+    });
+    expect(html).toContain('type="radio"');
+    expect(html).toContain('name="choice"');
+    expect(html).toContain("Submit choice");
+    expect(html).toContain("const choiceMode = true;");
+    expect(html).toContain('answer = { type: "choice"');
+    // The question and its options are data, never markup.
+    expect(html).not.toContain("<script>alert(1)</script>");
+    expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(html).not.toContain("<img src=x onerror");
+    // Autofocus would steal the focus from the options.
+    expect(html).not.toContain("autofocus");
+    expect(html).toContain("Pick one option");
+  });
+
+  it("leaves the region form alone when no options are given", () => {
+    const html = renderFeedbackPanel({
+      capturedAt: "2026-09-09T00:00:00.000Z",
+      captureId: "capture-region",
+      imagePath: "/tmp/region.png",
+      pageTitle: "Region",
+      pageUrl: "http://127.0.0.1:8765/",
+      readiness: "ready",
+      readinessReasons: [],
+      image: {
+        height: 200,
+        width: 300,
+      },
+    });
+    expect(html).toContain("const choiceMode = false;");
+    expect(html).toContain("Submit feedback");
+    expect(html).toContain("autofocus");
+    expect(html).not.toContain('type="radio"');
+    expect(html).toContain("Drag on the target image");
+  });
+
+  it("names comparison sides with the caller's labels, then positionally", () => {
+    const comparison = {
+      beforeCaptureId: "capture-b1",
+      comparisonId: "comparison-labels",
+      mode: "variant" as const,
+      status: "comparable" as const,
+      beforeImage: {
+        height: 200,
+        path: "/tmp/b1.png",
+        width: 300,
+      },
+      reasons: [
+        "page URL changed",
+      ],
+    };
+    const base = {
+      capturedAt: "2026-09-09T00:00:01.000Z",
+      captureId: "capture-b2",
+      pageTitle: "B2",
+      pageUrl: "http://127.0.0.1:8765/variant-b2",
+      readiness: "ready" as const,
+      readinessReasons: [],
+      image: {
+        height: 200,
+        path: "/tmp/b2.png",
+        width: 300,
+      },
+    };
+
+    const labelled = renderFeedbackPanel({
+      ...base,
+      comparison: {
+        ...comparison,
+        labels: [
+          "B1 紧凑",
+          "B2 宽松",
+        ],
+      },
+    });
+    expect(labelled).toContain("B1 紧凑");
+    expect(labelled).toContain("B2 宽松");
+    expect(labelled).toContain("Accept B2 宽松");
+    expect(labelled).not.toContain("Before");
+    expect(labelled).not.toContain("After");
+
+    const unlabelled = renderFeedbackPanel({
+      ...base,
+      comparison,
+    });
+    // A variant without labels is positional, never a claim about order.
+    expect(unlabelled).toContain("Left");
+    expect(unlabelled).toContain("Right");
+    expect(unlabelled).not.toContain("Before");
+    expect(unlabelled).not.toContain("After");
+    expect(unlabelled).toContain("Accept Right");
+
+    const regression = renderFeedbackPanel({
+      ...base,
+      comparison: {
+        ...comparison,
+        mode: "regression",
+      },
+    });
+    expect(regression).toContain("Before");
+    expect(regression).toContain("After");
+    expect(regression).toContain("Accept result");
+  });
 });
 
 it("renders immutable before and after versions without an automatic pass", () => {
@@ -349,7 +471,7 @@ describe("visual feedback bridge messages", () => {
           type: "accept",
         },
         image,
-        true,
+        "comparison",
       ),
     ).toEqual({
       status: "accepted",
@@ -364,6 +486,98 @@ describe("visual feedback bridge messages", () => {
     ).toThrow("accept");
   });
 
+  it("takes a choice answer only from a choice panel", () => {
+    expect(
+      validateFeedbackBridgeMessage(
+        {
+          choice: "B1",
+          type: "choice",
+        },
+        image,
+        "choice",
+      ),
+    ).toEqual({
+      choice: "B1",
+      status: "chosen",
+    });
+    expect(() =>
+      validateFeedbackBridgeMessage(
+        {
+          choice: "B1",
+          type: "choice",
+        },
+        image,
+      ),
+    ).toThrow("choice is only valid");
+    expect(() =>
+      validateFeedbackBridgeMessage(
+        {
+          choice: "",
+          type: "choice",
+        },
+        image,
+        "choice",
+      ),
+    ).toThrow("non-empty");
+    // A choice panel answers the question; it does not submit a region on its own.
+    expect(() =>
+      validateFeedbackBridgeMessage(
+        {
+          comment: "Only a region",
+          type: "submit",
+          region: {
+            height: 1,
+            width: 1,
+            x: 0,
+            y: 0,
+          },
+        },
+        image,
+        "choice",
+      ),
+    ).toThrow("not a region");
+  });
+
+  it("carries an optional region and comment alongside a choice", () => {
+    const bare = validateFeedbackBridgeMessage(
+      {
+        choice: "B2",
+        type: "choice",
+      },
+      image,
+      "choice",
+    );
+    expect(bare).toEqual({
+      choice: "B2",
+      status: "chosen",
+    });
+
+    const annotated = validateFeedbackBridgeMessage(
+      {
+        choice: "B2",
+        comment: "This one keeps the footer padding.",
+        type: "choice",
+        region: {
+          height: 20,
+          width: 40,
+          x: 5,
+          y: 6,
+        },
+      },
+      image,
+      "choice",
+    );
+    expect(annotated).toMatchObject({
+      choice: "B2",
+      status: "chosen",
+    });
+    expect(annotated).toHaveProperty("draft.region", {
+      height: 20,
+      width: 40,
+      x: 5,
+      y: 6,
+    });
+  });
   it("validates one submitted message against the source image", () => {
     expect(
       validateFeedbackBridgeMessage(

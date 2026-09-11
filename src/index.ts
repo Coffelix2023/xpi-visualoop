@@ -8,6 +8,7 @@ import type { Capture, Comparison } from "./visual-loop/evidence.ts";
 import {
   comparisonPanelInput,
   embedFeedbackImage,
+  type FeedbackPanelForm,
   feedbackPanelInput,
   loadGlimpse,
   renderFeedbackPanel,
@@ -88,6 +89,24 @@ export const FeedbackParameters = Type.Object(
         minLength: 1,
       }),
     ),
+    options: Type.Optional(
+      Type.Array(
+        Type.String({
+          maxLength: 40,
+          minLength: 1,
+        }),
+        {
+          maxItems: 4,
+          minItems: 2,
+        },
+      ),
+    ),
+    question: Type.Optional(
+      Type.String({
+        maxLength: 200,
+        minLength: 1,
+      }),
+    ),
   },
   {
     additionalProperties: false,
@@ -117,6 +136,27 @@ export function feedbackReference(params: {
         comparisonId: params.comparisonId ?? "",
         mode: "comparison",
       };
+}
+
+/**
+ * A question and its options are one decision, so half of it is a caller mistake
+ * rather than a panel with half the information.
+ */
+export function feedbackQuestion(params: { options?: string[]; question?: string }):
+  | {
+      options: string[];
+      question: string;
+    }
+  | undefined {
+  if (params.options === undefined && params.question === undefined) return undefined;
+  if (params.options === undefined || params.question === undefined)
+    throw new Error(
+      "visual_feedback requires question and options together, or neither",
+    );
+  return {
+    options: params.options,
+    question: params.question,
+  };
 }
 
 export const VerifyParameters = Type.Object(
@@ -344,6 +384,39 @@ export function unavailableFeedbackResult(captureId: string, imagePath: string) 
   };
 }
 
+/**
+ * Text fallback for a choice panel. `ctx.ui.select` is already a list of options,
+ * so this is the one degradation that loses nothing: the answer stays structured
+ * instead of turning into a sentence the model has to parse.
+ */
+export async function textChoiceFeedbackFallback(
+  ctx: ExtensionContext,
+  question: string,
+  options: string[],
+  signal: AbortSignal | undefined,
+): Promise<
+  | {
+      choice: string;
+      status: "chosen";
+    }
+  | {
+      status: "cancelled";
+    }
+> {
+  const choice = await ctx.ui.select(question, options, {
+    signal,
+    timeout: 10 * 60 * 1000,
+  });
+  if (choice === undefined || choice.trim().length === 0)
+    return {
+      status: "cancelled",
+    };
+  return {
+    choice,
+    status: "chosen",
+  };
+}
+
 export async function textFeedbackFallback(
   ctx: ExtensionContext,
   capture: Awaited<ReturnType<VisualLoopManager["capture"]>>,
@@ -506,6 +579,7 @@ export default function xpiVisualoop(pi: ExtensionAPI): void {
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       try {
         const reference = feedbackReference(params);
+        const decision = feedbackQuestion(params);
         let comparison: Comparison | undefined;
         let before: Capture | undefined;
         let capture: Capture;
@@ -562,6 +636,20 @@ export default function xpiVisualoop(pi: ExtensionAPI): void {
           _signal ?? ctx.signal,
           async (signal, registerClose) => {
             if (!glimpse) {
+              if (decision) {
+                const fallback = await textChoiceFeedbackFallback(
+                  ctx,
+                  decision.question,
+                  decision.options,
+                  signal,
+                );
+                return {
+                  ...binding,
+                  ...fallback,
+                  options: decision.options,
+                  question: decision.question,
+                };
+              }
               if (comparison && before)
                 return textComparisonFeedbackFallback(
                   ctx,
@@ -599,11 +687,17 @@ export default function xpiVisualoop(pi: ExtensionAPI): void {
                 ...fallback,
               };
             }
-            const panelInput = await embedFeedbackImage(
-              comparison && before
+            const panelInput = await embedFeedbackImage({
+              ...(comparison && before
                 ? comparisonPanelInput(comparison, before, capture)
-                : feedbackPanelInput(capture),
-            );
+                : feedbackPanelInput(capture)),
+              ...(decision
+                ? {
+                    options: decision.options,
+                    question: decision.question,
+                  }
+                : {}),
+            });
             const message = await waitForFeedbackPanel(
               glimpse,
               renderFeedbackPanel(panelInput),
@@ -616,11 +710,11 @@ export default function xpiVisualoop(pi: ExtensionAPI): void {
               signal,
               registerClose,
             );
-            const outcome = validateFeedbackBridgeMessage(
-              message,
-              capture.image,
-              Boolean(comparison),
-            );
+            // The panel form decides which answers the bridge accepts.
+            let form: FeedbackPanelForm = "capture";
+            if (comparison) form = "comparison";
+            if (decision) form = "choice";
+            const outcome = validateFeedbackBridgeMessage(message, capture.image, form);
             if (outcome.status === "cancelled")
               return {
                 ...binding,
@@ -629,6 +723,28 @@ export default function xpiVisualoop(pi: ExtensionAPI): void {
             if (outcome.status === "accepted")
               return {
                 ...binding,
+                status: outcome.status,
+              } as const;
+            if (outcome.status === "chosen")
+              return {
+                ...binding,
+                ...(outcome.draft
+                  ? {
+                      feedback: manager.addFeedback(
+                        capture.captureId,
+                        outcome.draft.comment,
+                        outcome.draft.region,
+                        comparison?.comparisonId,
+                      ),
+                    }
+                  : {}),
+                choice: outcome.choice,
+                ...(decision
+                  ? {
+                      options: decision.options,
+                      question: decision.question,
+                    }
+                  : {}),
                 status: outcome.status,
               } as const;
             return {

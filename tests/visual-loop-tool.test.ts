@@ -10,6 +10,7 @@ import xpiVisualoop, {
   captureContent,
   compareContent,
   FeedbackParameters,
+  feedbackQuestion,
   feedbackReference,
   MAX_VERIFY_IMAGE_BYTES,
   PrepareParameters,
@@ -190,6 +191,67 @@ describe("visual tool registration", () => {
         comparisonId: "comparison-tool",
       }),
     ).toThrow("exactly one");
+    expect(
+      feedback.Check({
+        captureId: "capture-tool",
+        question: "Which one?",
+        options: [
+          "B1",
+          "B2",
+        ],
+      }),
+    ).toBe(true);
+    expect(
+      feedback.Check({
+        captureId: "capture-tool",
+        options: [
+          "only-one",
+        ],
+      }),
+    ).toBe(false);
+    expect(
+      feedback.Check({
+        captureId: "capture-tool",
+        options: [
+          "a",
+          "b",
+          "c",
+          "d",
+          "e",
+        ],
+      }),
+    ).toBe(false);
+
+    // A question and its options are one decision; half of it is refused.
+    expect(
+      feedbackQuestion({
+        question: "Which one?",
+        options: [
+          "B1",
+          "B2",
+        ],
+      }),
+    ).toEqual({
+      question: "Which one?",
+      options: [
+        "B1",
+        "B2",
+      ],
+    });
+    expect(feedbackQuestion({})).toBeUndefined();
+    expect(() =>
+      feedbackQuestion({
+        question: "Which one?",
+      }),
+    ).toThrow("together");
+    expect(() =>
+      feedbackQuestion({
+        options: [
+          "B1",
+          "B2",
+        ],
+      }),
+    ).toThrow("together");
 
     const verify = Compile(VerifyParameters);
     expect(

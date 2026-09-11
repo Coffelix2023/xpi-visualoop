@@ -16,6 +16,11 @@ export interface FeedbackComparisonInput {
   beforeImage: FeedbackImage;
   beforeImageData?: string;
   comparisonId: string;
+  labels?: [
+    string,
+    string,
+  ];
+  mode: Comparison["mode"];
   reasons: string[];
   status: Comparison["status"];
 }
@@ -26,8 +31,10 @@ export interface FeedbackPanelInput {
   image: FeedbackImage;
   imageData?: string;
   imagePath?: string;
+  options?: string[];
   pageTitle: string;
   pageUrl: string;
+  question?: string;
   readiness: "degraded" | "ready";
   readinessReasons: string[];
 }
@@ -60,6 +67,12 @@ export function comparisonPanelInput(
       beforeCaptureId: before.captureId,
       beforeImage: before.image,
       comparisonId: comparison.comparisonId,
+      ...(comparison.labels
+        ? {
+            labels: comparison.labels,
+          }
+        : {}),
+      mode: comparison.mode,
       reasons: comparison.reasons,
       status: comparison.status,
     },
@@ -237,6 +250,11 @@ export type FeedbackBridgeResult =
   | {
       draft: FeedbackDraft;
       status: "submitted";
+    }
+  | {
+      choice: string;
+      draft?: FeedbackDraft;
+      status: "chosen";
     };
 
 function objectRecord(value: unknown, name: string): Record<string, unknown> {
@@ -245,10 +263,37 @@ function objectRecord(value: unknown, name: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+/**
+ * A choice answer may carry a region and a comment, but it does not need them: the
+ * caller asked a question, not for markup. A draft is only built when the user
+ * supplied both, because feedback without a region has nothing to point at.
+ */
+function choiceDraft(
+  message: Record<string, unknown>,
+  image: Pick<FeedbackImage, "height" | "width">,
+): FeedbackDraft | undefined {
+  if (message.region === undefined) return undefined;
+  if (typeof message.comment !== "string" || message.comment.trim().length === 0)
+    return undefined;
+  const region = objectRecord(message.region, "feedback region");
+  return validateFeedbackDraft({
+    comment: message.comment,
+    image,
+    region: {
+      height: region.height as number,
+      width: region.width as number,
+      x: region.x as number,
+      y: region.y as number,
+    },
+  });
+}
+
+export type FeedbackPanelForm = "capture" | "choice" | "comparison";
+
 export function validateFeedbackBridgeMessage(
   value: unknown,
   image: Pick<FeedbackImage, "height" | "width">,
-  allowAcceptance = false,
+  form: FeedbackPanelForm = "capture",
 ): FeedbackBridgeResult {
   if (value === null)
     return {
@@ -260,15 +305,33 @@ export function validateFeedbackBridgeMessage(
       status: "cancelled",
     };
   if (message.type === "accept") {
-    if (!allowAcceptance) throw new Error("accept is only valid for a comparison");
+    if (form !== "comparison")
+      throw new Error("accept is only valid for a comparison panel");
     return {
       status: "accepted",
     };
   }
+  if (message.type === "choice") {
+    if (form !== "choice") throw new Error("choice is only valid for a choice panel");
+    if (typeof message.choice !== "string" || message.choice.length === 0)
+      throw new Error("choice answer must be a non-empty string");
+    const draft = choiceDraft(message, image);
+    return {
+      choice: message.choice,
+      ...(draft
+        ? {
+            draft,
+          }
+        : {}),
+      status: "chosen",
+    };
+  }
   if (message.type !== "submit")
     throw new Error(
-      "feedback message type must be submit, cancel, or comparison accept",
+      "feedback message type must be submit, choice, cancel, or comparison accept",
     );
+  if (form === "choice")
+    throw new Error("a choice panel submits a choice, not a region");
   const region = objectRecord(message.region, "feedback region");
   return {
     draft: validateFeedbackDraft({
@@ -303,6 +366,28 @@ export function renderFeedbackPanel(input: FeedbackPanelInput): string {
   if (image.width <= 0 || image.height <= 0)
     throw new Error("image dimensions must be positive");
   const comparison = input.comparison;
+  const choices = input.options;
+  const question = input.question;
+  // A variant comparison names its sides with the caller's labels; without labels
+  // the fallback is positional, never a claim about which came first.
+  const sideLabels: [
+    string,
+    string,
+  ] = comparison
+    ? (comparison.labels ??
+      (comparison.mode === "variant"
+        ? [
+            "Left",
+            "Right",
+          ]
+        : [
+            "Before",
+            "After",
+          ]))
+    : [
+        "Before",
+        "After",
+      ];
   if (comparison) {
     finite(comparison.beforeImage.width, "beforeImage.width");
     finite(comparison.beforeImage.height, "beforeImage.height");
@@ -321,17 +406,32 @@ export function renderFeedbackPanel(input: FeedbackPanelInput): string {
     ? escapeHtml(imageSource(comparison.beforeImage, comparison.beforeImageData))
     : undefined;
   const imageContent = comparison
-    ? `<section class="comparison-images" aria-label="Before and after screenshots">
-<figure><figcaption>Before · ${escapeHtml(comparison.beforeCaptureId)}</figcaption><div class="shot"><img id="before-image" draggable="false" alt="Before page screenshot" src="${beforeSrc}" width="${comparison.beforeImage.width}" height="${comparison.beforeImage.height}"></div></figure>
-<figure><figcaption>After · ${escapeHtml(input.captureId)} · feedback target</figcaption><div id="image-scroll" class="shot" aria-label="After screenshot region selector"><div id="image-stage"><img id="evidence-image" draggable="false" alt="After page screenshot" src="${src}" width="${image.width}" height="${image.height}"><div id="selection"></div></div></div></figure>
+    ? `<section class="comparison-images" aria-label="Compared versions">
+<figure><figcaption>${escapeHtml(sideLabels[0])} · ${escapeHtml(comparison.beforeCaptureId)}</figcaption><div class="shot"><img id="before-image" draggable="false" alt="${escapeHtml(sideLabels[0])} page screenshot" src="${beforeSrc}" width="${comparison.beforeImage.width}" height="${comparison.beforeImage.height}"></div></figure>
+<figure><figcaption>${escapeHtml(sideLabels[1])} · ${escapeHtml(input.captureId)} · feedback target</figcaption><div id="image-scroll" class="shot" aria-label="${escapeHtml(sideLabels[1])} screenshot region selector"><div id="image-stage"><img id="evidence-image" draggable="false" alt="${escapeHtml(sideLabels[1])} page screenshot" src="${src}" width="${image.width}" height="${image.height}"><div id="selection"></div></div></div></figure>
 </section>`
     : `<section id="image-scroll" class="shot single" aria-label="Screenshot region selector"><div id="image-stage"><img id="evidence-image" draggable="false" alt="Captured page screenshot" src="${src}" width="${image.width}" height="${image.height}"><div id="selection"></div></div></section>`;
-  const title = comparison ? "Visual comparison" : "Visual feedback";
+  let title = choices ? "Visual choice" : "Visual feedback";
+  if (comparison) title = "Visual comparison";
   const identity = comparison
     ? `${comparison.comparisonId} · ${comparison.status} · Not reviewed`
     : `${input.captureId} · ${status} · ${input.capturedAt}`;
+  const choiceMarkup =
+    choices && choices.length > 0
+      ? `<fieldset class="choices"><legend>${escapeHtml(question ?? "Choose one")}</legend>${choices
+          .map(
+            (option) =>
+              `<label><input type="radio" name="choice" value="${escapeHtml(option)}">${escapeHtml(option)}</label>`,
+          )
+          .join("")}</fieldset>`
+      : "";
+  const hint = choices
+    ? "Pick one option · Enter submit · Esc cancel"
+    : "Drag on the target image · Enter submit · Esc cancel";
+  const acceptLabel =
+    comparison?.mode === "variant" ? `Accept ${sideLabels[1]}` : "Accept result";
   const acceptButton = comparison
-    ? '<button id="accept" class="primary" type="button">Accept result</button>'
+    ? `<button id="accept" class="primary" type="button">${escapeHtml(acceptLabel)}</button>`
     : "";
   return `<!doctype html>
 <html lang="en">
@@ -366,6 +466,9 @@ input { min-width: 0; padding: 6px; }
 textarea { width: 100%; min-height: 64px; resize: vertical; padding: 8px; }
 footer { justify-content: space-between; border-top: 1px solid var(--rule); padding-top: 10px; }
 .actions { display: flex; gap: 8px; }
+.choices { border: 1px solid var(--rule); border-radius: 4px; display: grid; gap: 6px; margin: 0; padding: 10px; }
+.choices legend { color: var(--muted); font-size: 11px; padding: 0 4px; }
+.choices label { align-items: center; color: var(--ink); display: flex; font-size: 12px; gap: 8px; }
 @media (max-width: 760px) { .comparison-images { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
 </style>
@@ -379,16 +482,17 @@ footer { justify-content: space-between; border-top: 1px solid var(--rule); padd
 <section class="meta"><div>${escapeHtml(input.pageTitle)}</div><div>${escapeHtml(input.pageUrl)}</div>${reasons ? `<ul>${reasons}</ul>` : ""}</section>
 ${imageContent}
 <section>
+${choiceMarkup}
 <div class="fields">
 <label>X<input id="region-x" type="number" min="0" step="1" value="0"></label>
 <label>Y<input id="region-y" type="number" min="0" step="1" value="0"></label>
 <label>Width<input id="region-width" type="number" min="1" step="1" value="1"></label>
 <label>Height<input id="region-height" type="number" min="1" step="1" value="1"></label>
 </div>
-<label>Comment<textarea id="feedback-comment" maxlength="2000" autofocus placeholder="Describe the visual change"></textarea></label>
+<label>Comment<textarea id="feedback-comment" maxlength="2000"${choices ? "" : " autofocus"} placeholder="${choices ? "Optional note" : "Describe the visual change"}"></textarea></label>
 <div id="error" class="hint" role="alert" aria-live="polite"></div>
 </section>
-<footer><span class="hint">Drag on after image · Enter submit · Esc cancel</span><div class="actions"><button id="cancel" type="button">Cancel</button><button id="submit" type="button">Submit feedback</button>${acceptButton}</div></footer>
+<footer><span class="hint">${hint}</span><div class="actions"><button id="cancel" type="button">Cancel</button><button id="submit" type="button">${choices ? "Submit choice" : "Submit feedback"}</button>${acceptButton}</div></footer>
 </main>
 <script>
 (() => {
@@ -403,11 +507,13 @@ ${imageContent}
   let zoom = 1;
   let start = null;
   let sent = false;
+  const choiceMode = ${choices ? "true" : "false"};
+  let regionTouched = false;
   const number = (key) => Number(fields[key].value);
   const region = () => ({ x: number("x"), y: number("y"), width: number("width"), height: number("height") });
   const updateSelection = () => {
     const value = region();
-    selection.style.display = "block";
+    selection.style.display = choiceMode && !regionTouched ? "none" : "block";
     selection.style.left = Math.min(value.x, value.x + value.width) * image.clientWidth / source.width + "px";
     selection.style.top = Math.min(value.y, value.y + value.height) * image.clientHeight / source.height + "px";
     selection.style.width = Math.abs(value.width) * image.clientWidth / source.width + "px";
@@ -419,9 +525,9 @@ ${imageContent}
   // Belt and braces: the attribute and the CSS rule are the other two guards, and the
   // dragstart handler still holds if the stylesheet is ever regenerated without them.
   image.addEventListener("dragstart", (event) => event.preventDefault());
-  image.addEventListener("pointermove", (event) => { if (!start) return; const end = sourcePoint(event); fields.x.value = String(Math.round(Math.min(start.x, end.x))); fields.y.value = String(Math.round(Math.min(start.y, end.y))); fields.width.value = String(Math.round(Math.abs(end.x - start.x))); fields.height.value = String(Math.round(Math.abs(end.y - start.y))); updateSelection(); });
+  image.addEventListener("pointermove", (event) => { if (!start) return; const end = sourcePoint(event); regionTouched = true; fields.x.value = String(Math.round(Math.min(start.x, end.x))); fields.y.value = String(Math.round(Math.min(start.y, end.y))); fields.width.value = String(Math.round(Math.abs(end.x - start.x))); fields.height.value = String(Math.round(Math.abs(end.y - start.y))); updateSelection(); });
   image.addEventListener("pointerup", () => { start = null; });
-  Object.values(fields).forEach((field) => field.addEventListener("input", updateSelection));
+  Object.values(fields).forEach((field) => field.addEventListener("input", () => { regionTouched = true; updateSelection(); }));
   document.getElementById("zoom-out").addEventListener("click", () => { zoom = Math.max(0.8, zoom - 0.1); document.body.style.zoom = zoom; });
   document.getElementById("zoom-reset").addEventListener("click", () => { zoom = 1; document.body.style.zoom = zoom; });
   document.getElementById("zoom-in").addEventListener("click", () => { zoom = Math.min(1.5, zoom + 0.1); document.body.style.zoom = zoom; });
@@ -429,6 +535,15 @@ ${imageContent}
   const fail = (message) => { error.textContent = message; comment.focus(); };
   const submit = () => {
     try {
+      if (choiceMode) {
+        const picked = document.querySelector('input[name="choice"]:checked');
+        if (!picked) throw new Error("Pick one option.");
+        const answer = { type: "choice", choice: picked.value };
+        if (regionTouched) answer.region = region();
+        if (comment.value.trim()) answer.comment = comment.value;
+        send(answer);
+        return;
+      }
       const value = region();
       if (!comment.value.trim()) throw new Error("Comment must not be blank.");
       if (![value.x, value.y, value.width, value.height].every(Number.isFinite)) throw new Error("Coordinates must be finite.");
