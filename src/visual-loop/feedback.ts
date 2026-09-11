@@ -68,6 +68,9 @@ export const PANEL_COPY: Record<PanelLanguage, Record<string, string>> = {
     errorCoordinates: "坐标必须是有限数值。",
     errorFix: "请修正后再提交。",
     errorInside: "区域必须留在截图范围内。",
+    // biome-ignore lint/security/noSecrets: Chinese copy, not a credential; the
+    // entropy heuristic reads short CJK strings as high-entropy secrets.
+    // (the same reason applies to every zh-CN value in this table)
     errorPick: "请选择一项。",
     errorPositive: "区域必须有正的面积。",
     feedbackTarget: "反馈目标",
