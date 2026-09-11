@@ -147,6 +147,7 @@ describe("session evidence store", () => {
         captureId: first.captureId,
         comment: "Keep this baseline",
         feedbackId: "feedback-first",
+        source: "drag",
         sourceImageId: first.captureId,
         submittedAt: "2026-09-09T00:00:00.000Z",
         region: {
@@ -184,6 +185,7 @@ describe("feedback and comparison validation", () => {
         captureId: "capture-a",
         comment: "Move this",
         feedbackId: "feedback-a",
+        source: "drag",
         sourceImageId: "capture-a",
         submittedAt: "2026-09-09T00:00:00.000Z",
         region: {
@@ -199,6 +201,7 @@ describe("feedback and comparison validation", () => {
         captureId: "capture-a",
         comment: " ",
         feedbackId: "feedback-a",
+        source: "drag",
         sourceImageId: "capture-a",
         submittedAt: "invalid",
         region: {
@@ -266,6 +269,7 @@ describe("feedback and comparison validation", () => {
           comment: "Adjust the after version",
           comparisonId: comparison.comparisonId,
           feedbackId: "feedback-after",
+          source: "drag",
           sourceImageId: after.captureId,
           submittedAt: "2026-09-09T00:00:00.000Z",
           region: {
@@ -289,6 +293,7 @@ describe("feedback and comparison validation", () => {
           comment: "Wrong version",
           comparisonId: comparison.comparisonId,
           feedbackId: "feedback-wrong",
+          source: "drag",
           sourceImageId: before.captureId,
           submittedAt: "2026-09-09T00:00:00.000Z",
           region: {
@@ -301,5 +306,68 @@ describe("feedback and comparison validation", () => {
         1,
       ),
     ).toThrow("after capture");
+  });
+  describe("feedback region provenance", () => {
+    function feedback(overrides: Record<string, unknown> = {}) {
+      return {
+        captureId: "capture-a",
+        comment: "Tighten this.",
+        feedbackId: "feedback-a",
+        source: "drag",
+        sourceImageId: "capture-a",
+        submittedAt: "2026-09-09T00:00:00.000Z",
+        region: {
+          height: 10,
+          width: 20,
+          x: 1,
+          y: 2,
+        },
+        ...overrides,
+      };
+    }
+
+    it("keeps an element identity only on a picked region", () => {
+      const picked = validateFeedback(
+        feedback({
+          source: "pick",
+          target: {
+            role: "button",
+            selector: "#save-button",
+            text: "Save changes",
+          },
+        }),
+      );
+      expect(picked.source).toBe("pick");
+      expect(picked.target).toEqual({
+        role: "button",
+        selector: "#save-button",
+        text: "Save changes",
+      });
+
+      const dragged = validateFeedback(feedback());
+      expect(dragged.source).toBe("drag");
+      expect(dragged.target).toBeUndefined();
+    });
+
+    it("refuses a hand-made region that claims an element, and an unknown source", () => {
+      expect(() =>
+        validateFeedback(
+          feedback({
+            target: {
+              role: "button",
+              selector: "#x",
+              text: "",
+            },
+          }),
+        ),
+      ).toThrow("picked region");
+      expect(() =>
+        validateFeedback(
+          feedback({
+            source: "typed",
+          }),
+        ),
+      ).toThrow("feedback.source");
+    });
   });
 });

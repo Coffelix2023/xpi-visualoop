@@ -98,14 +98,27 @@ export interface Capture {
   };
 }
 
+/**
+ * The element a picked region came from. Only a pick produces this; a region the
+ * user shaped by hand has no element to name.
+ */
+export interface FeedbackTarget {
+  role: string;
+  selector: string;
+  text: string;
+}
+
 export interface Feedback {
   captureId: string;
   comment: string;
   comparisonId?: string;
   feedbackId: string;
   region: Region;
+  /** "pick" when the region came from an element, "drag" for a hand-made one. */
+  source: "pick" | "drag";
   sourceImageId: string;
   submittedAt: string;
+  target?: FeedbackTarget;
 }
 
 export interface TargetChangeSummary {
@@ -424,11 +437,26 @@ function region(value: unknown, name: string): Region {
   };
 }
 
+function feedbackTarget(value: unknown): FeedbackTarget {
+  const item = record(value, "feedback.target");
+  return {
+    role: string(item.role, "feedback.target.role", 120),
+    selector: string(item.selector, "feedback.target.selector", 2048),
+    text: typeof item.text === "string" ? item.text.slice(0, 2048) : "",
+  };
+}
+
 export function validateFeedback(value: unknown): Feedback {
   const item = record(value, "feedback");
   const comment = string(item.comment, "feedback.comment", 2000);
   if (comment.trim().length === 0)
     throw new Error("feedback.comment must not be blank");
+  // Only the picker observes an element identity, so a hand-made region must not be
+  // able to claim one.
+  if (item.source !== "pick" && item.source !== "drag")
+    throw new Error("feedback.source is invalid");
+  if (item.source === "drag" && item.target !== undefined)
+    throw new Error("feedback.target is only valid for a picked region");
   return {
     captureId: identifier(item.captureId, "feedback.captureId"),
     comment,
@@ -439,8 +467,14 @@ export function validateFeedback(value: unknown): Feedback {
         }),
     feedbackId: identifier(item.feedbackId, "feedback.feedbackId"),
     region: region(item.region, "feedback.region"),
+    source: item.source,
     sourceImageId: identifier(item.sourceImageId, "feedback.sourceImageId"),
     submittedAt: timestamp(item.submittedAt, "feedback.submittedAt"),
+    ...(item.target === undefined
+      ? {}
+      : {
+          target: feedbackTarget(item.target),
+        }),
   };
 }
 

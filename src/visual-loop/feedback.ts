@@ -3,9 +3,20 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { Capture, CaptureCandidate, Comparison, Region } from "./evidence.ts";
+import type {
+  Capture,
+  CaptureCandidate,
+  Comparison,
+  FeedbackTarget,
+  Region,
+} from "./evidence.ts";
 
 export interface FeedbackImage {
+  /** Output pixels per page coordinate unit. Absent means 1:1. */
+  coordinateScale?: {
+    x: number;
+    y: number;
+  };
   height: number;
   path?: string;
   width: number;
@@ -127,6 +138,8 @@ export interface FeedbackDraft {
   comment: string;
   image: Pick<FeedbackImage, "height" | "width">;
   region: Region;
+  source: "pick" | "drag";
+  target?: FeedbackTarget;
 }
 
 export interface GlimpsePromptOptions {
@@ -218,6 +231,10 @@ export function validateFeedbackDraft(draft: FeedbackDraft): FeedbackDraft {
     throw new Error("comment must not be blank");
   if (draft.comment.length > MAX_COMMENT_LENGTH)
     throw new Error("comment exceeds the 2000 character limit");
+  if (draft.source !== "pick" && draft.source !== "drag")
+    throw new Error("source must be pick or drag");
+  if (draft.source === "drag" && draft.target !== undefined)
+    throw new Error("only a picked region may carry an element identity");
   const { height, width } = draft.image;
   finite(height, "image.height");
   finite(width, "image.width");
@@ -239,6 +256,12 @@ export function validateFeedbackDraft(draft: FeedbackDraft): FeedbackDraft {
       width,
     },
     region,
+    source: draft.source,
+    ...(draft.target === undefined
+      ? {}
+      : {
+          target: draft.target,
+        }),
   };
 }
 
@@ -270,6 +293,32 @@ function objectRecord(value: unknown, name: string): Record<string, unknown> {
  * caller asked a question, not for markup. A draft is only built when the user
  * supplied both, because feedback without a region has nothing to point at.
  */
+/**
+ * A panel sends the element identity only when the region came from a pick, so a
+ * pick without one is a broken message rather than a hand-made region.
+ */
+function messageIdentity(message: Record<string, unknown>): {
+  source: "pick" | "drag";
+  target?: FeedbackTarget;
+} {
+  if (message.source !== "pick") {
+    if (message.target !== undefined)
+      throw new Error("a hand-made region must not carry an element identity");
+    return {
+      source: "drag",
+    };
+  }
+  const target = objectRecord(message.target, "feedback target");
+  return {
+    source: "pick",
+    target: {
+      role: typeof target.role === "string" ? target.role : "",
+      selector: typeof target.selector === "string" ? target.selector : "",
+      text: typeof target.text === "string" ? target.text : "",
+    },
+  };
+}
+
 function choiceDraft(
   message: Record<string, unknown>,
   image: Pick<FeedbackImage, "height" | "width">,
@@ -287,6 +336,7 @@ function choiceDraft(
       x: region.x as number,
       y: region.y as number,
     },
+    ...messageIdentity(message),
   });
 }
 
@@ -345,6 +395,7 @@ export function validateFeedbackBridgeMessage(
         x: region.x as number,
         y: region.y as number,
       },
+      ...messageIdentity(message),
     }),
     status: "submitted",
   };

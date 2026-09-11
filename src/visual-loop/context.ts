@@ -26,6 +26,7 @@ import {
   compareCaptureConditions,
   EvidenceStore,
   type Feedback,
+  type FeedbackTarget,
   type ImageArtifact,
   type Region,
   summarizeTargetChanges,
@@ -708,7 +709,11 @@ export class VisualLoopManager {
     captureId: string,
     comment: string,
     region: Region,
-    comparisonId?: string,
+    options: {
+      comparisonId?: string;
+      source: "pick" | "drag";
+      target?: FeedbackTarget;
+    },
   ): Feedback {
     const active = this.active;
     if (!active) throw new Error("visual loop is not prepared");
@@ -716,15 +721,21 @@ export class VisualLoopManager {
       {
         captureId,
         comment,
-        ...(comparisonId
+        ...(options.comparisonId
           ? {
-              comparisonId,
+              comparisonId: options.comparisonId,
             }
           : {}),
         feedbackId: `feedback-${randomUUID()}`,
         region,
+        source: options.source,
         sourceImageId: captureId,
         submittedAt: new Date().toISOString(),
+        ...(options.target
+          ? {
+              target: options.target,
+            }
+          : {}),
       },
       this.epoch,
     );

@@ -206,6 +206,7 @@ describe("visual feedback coordinates", () => {
     expect(() =>
       validateFeedbackDraft({
         comment: "  ",
+        source: "drag",
         image: {
           height: 100,
           width: 100,
@@ -221,6 +222,7 @@ describe("visual feedback coordinates", () => {
     expect(() =>
       validateFeedbackDraft({
         comment: "fix",
+        source: "drag",
         image: {
           height: 100,
           width: 100,
@@ -236,6 +238,7 @@ describe("visual feedback coordinates", () => {
     expect(() =>
       validateFeedbackDraft({
         comment: "fix",
+        source: "drag",
         image: {
           height: 100,
           width: 100,
@@ -632,6 +635,99 @@ describe("visual feedback bridge messages", () => {
       y: 6,
     });
   });
+  it("carries an element identity only when the region was picked", () => {
+    const region = {
+      height: 10,
+      width: 20,
+      x: 1,
+      y: 2,
+    };
+    const picked = validateFeedbackBridgeMessage(
+      {
+        comment: "Tighten this button.",
+        region,
+        source: "pick",
+        type: "submit",
+        target: {
+          role: "button",
+          selector: "#save-button",
+          text: "Save changes",
+        },
+      },
+      image,
+      "capture",
+    );
+    expect(picked).toMatchObject({
+      status: "submitted",
+      draft: {
+        source: "pick",
+        target: {
+          role: "button",
+          selector: "#save-button",
+          text: "Save changes",
+        },
+      },
+    });
+
+    const dragged = validateFeedbackBridgeMessage(
+      {
+        comment: "Tighten this area.",
+        region,
+        source: "drag",
+        type: "submit",
+      },
+      image,
+      "capture",
+    );
+    expect(dragged).toMatchObject({
+      status: "submitted",
+      draft: {
+        source: "drag",
+      },
+    });
+    expect(dragged).not.toHaveProperty("draft.target");
+
+    // A panel that predates the field still means "shaped by hand".
+    const silent = validateFeedbackBridgeMessage(
+      {
+        comment: "No source field.",
+        region,
+        type: "submit",
+      },
+      image,
+      "capture",
+    );
+    expect(silent).toMatchObject({
+      draft: {
+        source: "drag",
+      },
+    });
+
+    // Claiming an element without picking one, and picking without an element, are
+    // both broken messages rather than hand-made regions.
+    for (const message of [
+      {
+        comment: "Claims an element",
+        region,
+        source: "drag",
+        type: "submit",
+        target: {
+          role: "button",
+          selector: "#x",
+          text: "",
+        },
+      },
+      {
+        comment: "Picks nothing",
+        region,
+        source: "pick",
+        type: "submit",
+      },
+    ]) {
+      expect(() => validateFeedbackBridgeMessage(message, image, "capture")).toThrow();
+    }
+  });
+
   it("validates one submitted message against the source image", () => {
     expect(
       validateFeedbackBridgeMessage(

@@ -453,6 +453,9 @@ export async function textFeedbackFallback(
   const draft = validateFeedbackDraft({
     comment,
     image: capture.image,
+    // The text fallback asks for a sentence about the whole screenshot, so there is
+    // no element to name.
+    source: "drag",
     region: {
       height: capture.image.height,
       width: capture.image.width,
@@ -673,7 +676,10 @@ export default function xpiVisualoop(pi: ExtensionAPI): void {
                         x: 0,
                         y: 0,
                       },
-                      comparison?.comparisonId,
+                      {
+                        comparisonId: comparison?.comparisonId,
+                        source: "drag",
+                      },
                     ),
                 );
               const fallback = await textFeedbackFallback(
@@ -681,12 +687,19 @@ export default function xpiVisualoop(pi: ExtensionAPI): void {
                 capture,
                 signal,
                 (comment) =>
-                  manager.addFeedback(capture.captureId, comment, {
-                    height: capture.image.height,
-                    width: capture.image.width,
-                    x: 0,
-                    y: 0,
-                  }),
+                  manager.addFeedback(
+                    capture.captureId,
+                    comment,
+                    {
+                      height: capture.image.height,
+                      width: capture.image.width,
+                      x: 0,
+                      y: 0,
+                    },
+                    {
+                      source: "drag",
+                    },
+                  ),
               );
               return {
                 captureId: capture.captureId,
@@ -740,7 +753,15 @@ export default function xpiVisualoop(pi: ExtensionAPI): void {
                         capture.captureId,
                         outcome.draft.comment,
                         outcome.draft.region,
-                        comparison?.comparisonId,
+                        {
+                          comparisonId: comparison?.comparisonId,
+                          source: outcome.draft.source,
+                          ...(outcome.draft.target
+                            ? {
+                                target: outcome.draft.target,
+                              }
+                            : {}),
+                        },
                       ),
                     }
                   : {}),
@@ -759,7 +780,15 @@ export default function xpiVisualoop(pi: ExtensionAPI): void {
                 capture.captureId,
                 outcome.draft.comment,
                 outcome.draft.region,
-                comparison?.comparisonId,
+                {
+                  comparisonId: comparison?.comparisonId,
+                  source: outcome.draft.source,
+                  ...(outcome.draft.target
+                    ? {
+                        target: outcome.draft.target,
+                      }
+                    : {}),
+                },
               ),
               status: outcome.status,
             } as const;
