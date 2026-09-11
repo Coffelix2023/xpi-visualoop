@@ -71,6 +71,8 @@ interface ActiveInspection {
   /** Session-owned evidence directory, removed on release. */
   evidenceDir: string;
   feedbackCancel?: () => void;
+  /** "Don't ask again this round"; bounds of the round are this inspection. */
+  feedbackSuppressed: boolean;
   inspectionId: string;
   lockHandle: Awaited<ReturnType<typeof open>>;
   lockPath: string;
@@ -659,6 +661,18 @@ export class VisualLoopManager {
     return this.active?.config.glimpseModulePath;
   }
 
+  /**
+   * "Don't ask again this round" is scoped to one inspection: the flag lives on the
+   * active context, so it dies with the inspection instead of leaking into the next one.
+   */
+  suppressFeedback(): void {
+    if (this.active) this.active.feedbackSuppressed = true;
+  }
+
+  feedbackSuppressed(): boolean {
+    return this.active?.feedbackSuppressed === true;
+  }
+
   async runFeedback<T>(
     captureId: string,
     signal: AbortSignal | undefined,
@@ -819,6 +833,7 @@ export class VisualLoopManager {
         createdTargets: [],
         evidenceDir,
         evidence: new EvidenceStore(evidenceDir, this.epoch),
+        feedbackSuppressed: false,
         inspectionId: id("inspection"),
         lockHandle,
         lockPath,

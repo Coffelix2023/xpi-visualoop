@@ -14,6 +14,7 @@ import xpiVisualoop, {
   feedbackReference,
   MAX_VERIFY_IMAGE_BYTES,
   PrepareParameters,
+  suppressedFeedbackResult,
   textComparisonFeedbackFallback,
   textFeedbackFallback,
   toolErrorMessage,
@@ -565,6 +566,38 @@ describe("visual capture tool output", () => {
         comparisonId: comparison.comparisonId,
         status: "cancelled",
       });
+    });
+  });
+});
+
+describe("suppressed visual feedback", () => {
+  it("returns the suppression instead of opening anything", () => {
+    expect(
+      suppressedFeedbackResult(false, {
+        captureId: "capture-tool",
+      }),
+    ).toBeUndefined();
+    expect(
+      suppressedFeedbackResult(true, {
+        captureId: "capture-tool",
+      }),
+    ).toEqual({
+      captureId: "capture-tool",
+      status: "suppressed",
+    });
+    // A comparison keeps its binding too: the caller asked about a version pair, and
+    // the suppression answers that same reference.
+    expect(
+      suppressedFeedbackResult(true, {
+        afterCaptureId: "capture-after",
+        beforeCaptureId: "capture-before",
+        comparisonId: "comparison-tool",
+      }),
+    ).toEqual({
+      afterCaptureId: "capture-after",
+      beforeCaptureId: "capture-before",
+      comparisonId: "comparison-tool",
+      status: "suppressed",
     });
   });
 });

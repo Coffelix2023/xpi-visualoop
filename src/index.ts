@@ -400,6 +400,25 @@ export function unavailableFeedbackResult(captureId: string, imagePath: string) 
 }
 
 /**
+ * The gate for "don't ask again this round". It sits before the panel and before its
+ * text fallback, so a suppressed request opens nothing and says why.
+ */
+export function suppressedFeedbackResult(
+  suppressed: boolean,
+  binding: Record<string, unknown>,
+):
+  | (Record<string, unknown> & {
+      status: "suppressed";
+    })
+  | undefined {
+  if (!suppressed) return undefined;
+  return {
+    ...binding,
+    status: "suppressed",
+  };
+}
+
+/**
  * Text fallback for a choice panel. `ctx.ui.select` is already a list of options,
  * so this is the one degradation that loses nothing: the answer stays structured
  * instead of turning into a sentence the model has to parse.
@@ -630,6 +649,21 @@ export default function xpiVisualoop(pi: ExtensionAPI): void {
           : {
               captureId: capture.captureId,
             };
+        const suppressed = suppressedFeedbackResult(
+          manager.feedbackSuppressed(),
+          binding,
+        );
+        if (suppressed) {
+          return {
+            details: suppressed,
+            content: [
+              {
+                text: `${JSON.stringify(suppressed)}\nThe user chose not to be asked again this inspection round, so no panel was opened.`,
+                type: "text" as const,
+              },
+            ],
+          };
+        }
         if (!ctx.hasUI) {
           const result = comparison
             ? {
@@ -745,11 +779,21 @@ export default function xpiVisualoop(pi: ExtensionAPI): void {
             if (comparison) form = "comparison";
             if (decision) form = "choice";
             const outcome = validateFeedbackBridgeMessage(message, capture.image, form);
-            if (outcome.status === "cancelled")
+            if (outcome.status === "cancelled") {
+              // The follow-up answer refines the cancel; it is a hint for the next
+              // call, not a new outcome, and it only suppresses this inspection.
+              if (outcome.suppressForRound) manager.suppressFeedback();
               return {
                 ...binding,
+                ...(outcome.reopenRequested === undefined
+                  ? {}
+                  : {
+                      reopenRequested: outcome.reopenRequested,
+                      suppressForRound: outcome.suppressForRound,
+                    }),
                 status: outcome.status,
               } as const;
+            }
             if (outcome.status === "accepted")
               return {
                 ...binding,
@@ -825,7 +869,14 @@ export default function xpiVisualoop(pi: ExtensionAPI): void {
         | {
             captureId?: string;
             comparisonId?: string;
-            status: "accepted" | "busy" | "cancelled" | "submitted" | "unavailable";
+            status:
+              | "accepted"
+              | "busy"
+              | "cancelled"
+              | "chosen"
+              | "submitted"
+              | "suppressed"
+              | "unavailable";
           }
         | undefined;
       if (!details) return new Text(theme.fg("error", "Feedback failed"), 0, 0);

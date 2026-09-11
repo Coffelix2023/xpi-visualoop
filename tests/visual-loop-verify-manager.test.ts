@@ -163,6 +163,27 @@ describe("VisualLoopManager.verify", () => {
   });
 });
 
+describe("VisualLoopManager feedback suppression", () => {
+  it("scopes 'don't ask again this round' to one inspection", async () => {
+    const { manager } = await setup("stable");
+    expect(manager.feedbackSuppressed()).toBe(false);
+
+    manager.suppressFeedback();
+    expect(manager.feedbackSuppressed()).toBe(true);
+
+    // The round is the inspection: ending it clears the suppression, so the next
+    // inspection asks the user again instead of staying silent forever.
+    await manager.disconnect();
+    expect(manager.feedbackSuppressed()).toBe(false);
+  });
+
+  it("without an active inspection there is nothing to suppress", async () => {
+    const { manager } = await setup("stable");
+    await manager.disconnect();
+    manager.suppressFeedback();
+    expect(manager.feedbackSuppressed()).toBe(false);
+  });
+});
 describe("VisualLoopManager.verify state declaration", () => {
   it("accepts a baseline without a declared state and never asks for one", async () => {
     const { ctx, manager } = await setup("stable");
