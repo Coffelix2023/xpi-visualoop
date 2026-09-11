@@ -31,7 +31,8 @@
     "vitest": "^3.0.0"
   },
   "pi": {
-    "extensions": ["./src/index.ts"]
+    "extensions": ["./src/index.ts"],
+    "skills": ["./skills"]
   },
   "scripts": {
     "lint": "biome check .",
