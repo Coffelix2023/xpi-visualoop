@@ -543,6 +543,7 @@ export class VisualLoopManager {
           : {}),
         beforeCaptureId: before.captureId,
         comparisonId,
+        mode: "regression",
         ...(commonRegion
           ? {
               commonRegion,

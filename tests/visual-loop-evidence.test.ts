@@ -162,6 +162,7 @@ describe("session evidence store", () => {
       {
         beforeCaptureId: first.captureId,
         comparisonId: "comparison-first",
+        mode: "regression",
         status: "not-comparable",
         reasons: [
           "after capture failed",
@@ -213,6 +214,7 @@ describe("feedback and comparison validation", () => {
         afterCaptureId: "capture-b",
         beforeCaptureId: "capture-a",
         comparisonId: "comparison-a",
+        mode: "regression",
         reasons: [],
         status: "comparable",
       }).comparisonId,
@@ -221,6 +223,7 @@ describe("feedback and comparison validation", () => {
       validateComparison({
         beforeCaptureId: "capture-a",
         comparisonId: "comparison-a",
+        mode: "regression",
         reasons: [],
         status: "comparable",
       }),
@@ -245,6 +248,7 @@ describe("feedback and comparison validation", () => {
         afterCaptureId: after.captureId,
         beforeCaptureId: before.captureId,
         comparisonId: "comparison-bound",
+        mode: "regression",
         reasons: [],
         status: "comparable",
       },

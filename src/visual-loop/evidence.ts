@@ -129,6 +129,11 @@ export interface Comparison {
     after?: Capture["diagnostics"];
     before: Capture["diagnostics"];
   };
+  labels?: [
+    string,
+    string,
+  ];
+  mode: "regression" | "variant";
   reasons: string[];
   status: "comparable" | "not-comparable";
   targetChanges: TargetChangeSummary;
@@ -554,6 +559,18 @@ function comparisonTargetChanges(value: unknown): TargetChangeSummary {
   };
 }
 
+function comparisonLabels(value: unknown): [
+  string,
+  string,
+] {
+  if (!Array.isArray(value) || value.length !== 2)
+    throw new Error("comparison.labels must contain exactly two strings");
+  return [
+    string(value[0], "comparison.labels[0]", 80),
+    string(value[1], "comparison.labels[1]", 80),
+  ];
+}
+
 export function validateComparison(value: unknown): Comparison {
   const item = record(value, "comparison");
   if (item.status !== "comparable" && item.status !== "not-comparable")
@@ -563,6 +580,10 @@ export function validateComparison(value: unknown): Comparison {
     item.reasons.some((reason) => typeof reason !== "string")
   )
     throw new Error("comparison.reasons must be strings");
+  // mode is recorded by whichever operation produced the comparison and is never a
+  // caller choice, so an unknown value means corrupted evidence rather than a request.
+  if (item.mode !== "regression" && item.mode !== "variant")
+    throw new Error("comparison.mode is invalid");
   if (item.status === "comparable" && item.afterCaptureId === undefined)
     throw new Error("comparison.afterCaptureId is required when comparable");
   return {
@@ -579,6 +600,12 @@ export function validateComparison(value: unknown): Comparison {
       : {
           commonRegion: comparisonCrop(item.commonRegion),
         }),
+    ...(item.labels === undefined
+      ? {}
+      : {
+          labels: comparisonLabels(item.labels),
+        }),
+    mode: item.mode,
     status: item.status,
     targetChanges: comparisonTargetChanges(item.targetChanges),
     reasons: [
@@ -655,6 +682,7 @@ function freezeComparison(value: Comparison): Comparison {
     Object.freeze(value.commonRegion.sourceRegions);
     Object.freeze(value.commonRegion);
   }
+  if (value.labels) Object.freeze(value.labels);
   return Object.freeze(value);
 }
 
