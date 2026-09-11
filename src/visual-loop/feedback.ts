@@ -645,13 +645,17 @@ export function renderFeedbackPanel(input: FeedbackPanelInput): string {
           .join("")}</fieldset>`
       : "";
   const hint = choices ? copy.pickHint : copy.dragHint;
+  // An accept button and a choice list are two competing answers to the same panel,
+  // and the bridge accepts only one of them per form. When the caller asked a
+  // question, the options are the answer channel.
   const acceptLabel =
     comparison?.mode === "variant"
       ? copy.acceptSide.replace("{side}", sideLabels[1])
       : copy.accept;
-  const acceptButton = comparison
-    ? `<button id="accept" class="primary" type="button">${escapeHtml(acceptLabel)}</button>`
-    : "";
+  const acceptButton =
+    comparison && !choices
+      ? `<button id="accept" class="primary" type="button">${escapeHtml(acceptLabel)}</button>`
+      : "";
   return `<!doctype html>
 <html lang="${language}">
 <head>

@@ -369,6 +369,52 @@ describe("visual feedback panel HTML", () => {
     expect(html).toContain("Pick one option");
   });
 
+
+  it("gives a comparison that asks a question exactly one answer channel", () => {
+    // Found by acceptance: the panel used to offer the accept button and the option
+    // list at once, and the bridge refuses `accept` in a choice panel — so pressing
+    // the visible button failed the whole call instead of answering the question.
+    const html = renderFeedbackPanel({
+      capturedAt: "2026-09-09T00:00:01.000Z",
+      captureId: "capture-after",
+      comparison: {
+        beforeCaptureId: "capture-before",
+        beforeImage: {
+          height: 200,
+          path: "/tmp/before.png",
+          width: 300,
+        },
+        comparisonId: "comparison-choice",
+        labels: [
+          "B1",
+          "B2",
+        ],
+        mode: "variant",
+        reasons: [],
+        status: "comparable",
+      },
+      image: {
+        height: 200,
+        path: "/tmp/after.png",
+        width: 300,
+      },
+      options: [
+        "B1",
+        "B2",
+      ],
+      pageTitle: "After",
+      pageUrl: "http://127.0.0.1:8765/",
+      question: "Which version?",
+      readiness: "ready",
+      readinessReasons: [],
+    });
+    expect(html).toContain('type="radio"');
+    expect(html).toContain("Submit choice");
+    expect(html).not.toContain('id="accept"');
+    // The variant wording still names both sides, so the question is answerable.
+    expect(html).toContain("B1 · capture-before");
+    expect(html).toContain("B2 · capture-after");
+  });
   it("leaves the region form alone when no options are given", () => {
     const html = renderFeedbackPanel({
       capturedAt: "2026-09-09T00:00:00.000Z",
