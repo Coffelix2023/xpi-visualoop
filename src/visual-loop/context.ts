@@ -574,6 +574,70 @@ export class VisualLoopManager {
     };
   }
 
+  /**
+   * Compose two captures that already exist into one comparison. Nothing is
+   * re-observed: no navigation, no screenshot, no endpoint probe. That is what
+   * separates a variant comparison from a regression check, and why the caller
+   * cannot pick the mode — the producing operation decides it.
+   */
+  compare(
+    leftCaptureId: string,
+    rightCaptureId: string,
+    labels?: [
+      string,
+      string,
+    ],
+  ): {
+    comparison: Comparison;
+    left: Capture;
+    right: Capture;
+  } {
+    const active = this.active;
+    if (!active) throw new Error("visual loop is not prepared");
+    const left = this.getCapture(leftCaptureId);
+    if (left.status !== "available")
+      throw new Error(
+        `comparison capture is unavailable: ${leftCaptureId} (${left.status})`,
+      );
+    const right = this.getCapture(rightCaptureId);
+    if (right.status !== "available")
+      throw new Error(
+        `comparison capture is unavailable: ${rightCaptureId} (${right.status})`,
+      );
+    const comparison = active.evidence.addComparison(
+      {
+        afterCaptureId: right.capture.captureId,
+        beforeCaptureId: left.capture.captureId,
+        comparisonId: id("comparison"),
+        diagnostics: {
+          after: right.capture.diagnostics,
+          before: left.capture.diagnostics,
+        },
+        ...(labels
+          ? {
+              labels,
+            }
+          : {}),
+        mode: "variant",
+        // The two sides are meant to differ, so every differing condition is
+        // information rather than a refusal. compareCaptureConditions is reused
+        // unchanged so the regression path keeps its single judge.
+        reasons: compareCaptureConditions(left.capture, right.capture),
+        status: "comparable",
+        targetChanges: summarizeTargetChanges(
+          left.capture.target,
+          right.capture.target,
+        ),
+      },
+      this.epoch,
+    );
+    return {
+      comparison,
+      left: left.capture,
+      right: right.capture,
+    };
+  }
+
   getComparison(comparisonId: string) {
     if (!this.active)
       return {
