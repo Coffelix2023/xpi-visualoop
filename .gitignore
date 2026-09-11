@@ -15,5 +15,5 @@ coverage/
 # c6x-config
 **/*backup*
 
-# 第三方参考仓库 clone,不入库;来源与定位见 docs/references/research.md
-docs/references/browser-harness/
+#c6x-config
+.pi-lens.json
