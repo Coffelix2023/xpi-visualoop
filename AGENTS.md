@@ -33,11 +33,17 @@ Node.js + pnpm(版本见 `mise.toml`)、TypeScript strict、Biome(lint+format)�
 .
 ├── mise.toml / package.json / biome.jsonc / tsconfig.json / pnpm-workspace.yaml
 ├── AGENTS.md / CONTEXT.md / DESIGN.md / README.md / README.zh-CN.md
+├── skills/xpi-visualoop/   # SKILL.md:工具触发面(description 决定模型何时调用)
+├── scripts/                # trigger-eval.sh:should-call 冒烟评测
+
 └── src/
-    └── index.ts           # 扩展入口(register);领域目录(tools/ commands/ lib/ 等)由项目按需增设
+    ├── index.ts           # 扩展入口(register);领域目录(tools/ commands/ lib/ 等)由项目按需增设
+    └── visual-loop/       # config / chrome 启动器 / cdp / evidence / feedback / context
 ```
 
-`skills/`、`prompts/` 等资源目录在**有真实内容时**再加入 pi manifest,不预建空目录。
+`prompts/` 等资源目录在**有真实内容时**再加入 pi manifest,不预建空目录。
+
+**触发面纪律**:这四个工具是否能被模型主动调用,取决于 `skills/xpi-visualoop/SKILL.md` 的 `description`。改动该字段等同于改动产品行为,必须跑 `scripts/trigger-eval.sh` 验证,不能只看代码。
 
 ## 4. 编码与 API 约定
 

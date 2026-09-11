@@ -24,7 +24,7 @@
 - **人能直接指。** `visual_feedback` 在一张截图或一组前后对比上打开 Glimpse 面板,评审变成在图上圈一块区域,而不是在对话里写一段话。
 - **可比性是判定出来的,不是假设出来的。** 调用方不肯声明交互状态时 `visual_verify` 直接拒绝复核;它返回 `comparable` 或 `not-comparable`,而不是把一次导航造成的差异悄悄报成代码改动。
 
-它刻意保持只读。Agent 只能看,不能点击、输入、滚动或执行页面脚本。全部操作走你自己拥有的专用浏览器 profile 与 Chrome DevTools Protocol(CDP,Chrome 开发者工具协议),不依赖外部浏览器后端,也不需要 Python 运行时;传输用 Node.js 内置的 `WebSocket`,因此本包新增运行时依赖为零。
+它刻意保持只读。Agent 只能看,不能点击、输入、滚动或执行页面脚本。全部操作走专用浏览器 profile 与 Chrome DevTools Protocol(CDP,Chrome 开发者工具协议),不依赖外部浏览器后端,也不需要 Python 运行时;传输用 Node.js 内置的 `WebSocket`,启动器用 `node:child_process`,因此本包新增运行时依赖为零。
 
 ## 安装
 
@@ -52,7 +52,9 @@ pi remove git:github.com/Coffelix2023/xpi-visualoop
 
 ## 配置
 
-扩展从不启动你的浏览器,从不碰你的日常 profile,也不会回退到别的浏览器。请自己准备一个专用实例:
+扩展从不碰你的日常 profile,也不会回退到别的浏览器。只有当视觉工具需要端点而该端口上没有任何监听时,它才会启动一个自己的 Chrome。那个 Chrome 是子进程:`/xpi-visualoop disconnect` 会关掉它,Pi 退出时也会回收。你自己启动的浏览器不会被接管,也不会被关闭。
+
+想自己控制窗口,就手动准备一个专用实例:
 
 ```bash
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
@@ -65,7 +67,7 @@ pi remove git:github.com/Coffelix2023/xpi-visualoop
 
 Linux 上换成你发行版的 Chrome 或 Chromium 可执行文件,参数相同。
 
-然后写配置文件 `<agentDir>/xpi-visualoop.json`;受信任的项目可用 `<cwd>/.pi/xpi-visualoop.json` 覆盖。
+配置是可选的。没有配置时,扩展使用默认端点 `http://127.0.0.1:9333/`,也就是上面那条命令里的端口。要换成别的地址,把配置写到 `<agentDir>/xpi-visualoop.json`;受信任的项目可用 `<cwd>/.pi/xpi-visualoop.json` 覆盖。
 
 ```json
 {
@@ -73,7 +75,9 @@ Linux 上换成你发行版的 Chrome 或 Chromium 可执行文件,参数相同�
 }
 ```
 
-`cdpUrl` 是唯一必填键,且必须是 `http://` 回环端点。`glimpseModulePath` 可选,必须是绝对路径。未知字段会 fail-closed(失败闭合)拒绝,而不是被静默忽略。
+`cdpUrl` 必须是 `http://` 回环端点。`glimpseModulePath` 可选,必须是绝对路径。未知字段、写错的 `cdpUrl`、无法解析的文件依然 fail-closed(失败闭合)拒绝,只有「键缺失」这一种情况回退到默认值。
+
+Chrome 不在默认位置(macOS 的 `/Applications`,或 `PATH` 上的 `google-chrome` / `chromium`)时,把 `XPI_VISUALOOP_CHROME` 设成浏览器的绝对路径。
 
 ### 从 `harnessPath` 迁移
 
@@ -102,10 +106,10 @@ Linux 上换成你发行版的 Chrome 或 Chromium 可执行文件,参数相同�
 
 ```text
 /xpi-visualoop status        # 当前检查上下文
-/xpi-visualoop disconnect    # 取消在途操作、使旧证据失效、释放自有文件
+/xpi-visualoop disconnect    # 取消在途操作、释放自有文件、关闭它自己启动的浏览器
 ```
 
-`disconnect` 会取消在途操作、使旧证据失效、清理扩展拥有的临时文件和浏览器资源,并保持浏览器进程与 profile 不动。
+`disconnect` 会取消在途操作、使旧证据失效、清理扩展拥有的临时文件和浏览器资源,并关闭本扩展自己启动的那个 Chrome 进程。你自己启动的浏览器保持不动。
 
 ## 预算与降级
 
@@ -131,7 +135,7 @@ Glimpse 不可用但 Pi 有 UI(用户界面)时,反馈降级为对**整张截图
 
 ## 文件、隐私边界与回滚
 
-截图和中间文件位于检查上下文私有的临时目录。清理只删除本扩展创建的内容;硬崩溃可能留下残留,下次启动只按所有权检查。浏览器进程和 profile 始终属于你。
+截图和中间文件位于检查上下文私有的临时目录。清理只删除本扩展创建的内容;硬崩溃可能留下残留,下次启动只按所有权检查。扩展启动的 Chrome 是 Pi 进程的子进程,退出时会被回收;它写入的 profile 是专用目录 `~/.cache/xpi-visualoop/chrome-profile`,永远不是日常 profile。
 
 工具结果中的截图可能被 Pi 会话持久化,或发送给你配置的模型服务。清理扩展临时目录不会删除这些副本。「本地采集」不等于图像绝不会离开本机。
 
@@ -139,7 +143,7 @@ Glimpse 不可用但 Pi 有 UI(用户界面)时,反馈降级为对**整张截图
 
 1. 在当前 Pi 会话执行 `/xpi-visualoop disconnect`。
 2. `pi remove git:github.com/Coffelix2023/xpi-visualoop`,或删除本地路径条目。
-3. 只删除你为本扩展准备的专用 profile 和临时目录;永远不要删除日常浏览器 profile。
+3. 只删除本扩展用过的专用 profile 和临时目录;永远不要删除日常浏览器 profile。
 
 ## 开发
 
@@ -152,6 +156,15 @@ pnpm test            # Vitest,只跑 tests/
 ```
 
 提交前三条必须全绿。Vitest 配置只收集 `tests/**/*.test.ts`;`docs/references` 里是第三方源码和研究期探针,依赖不同。
+
+触发面是随包发的 skill,不是 system prompt 里的 snippet。因此「模型是否真的会用」属于模型行为问题,不是代码问题——用测量代替假设:
+
+```bash
+scripts/trigger-eval.sh          # 三个固定 prompt,检查会话记录
+scripts/trigger-eval.sh --case 2 # 只跑一个用例
+```
+
+两个正例必须调用 `visual_prepare`,负例必须不调用。需要 `pi` 在 PATH 上、模型已配置,正例还需要一个可访问的本地 dev server。
 
 完整闭环的可执行验收脚本在 `docs/references/native-cdp-probes/verify.mjs`:
 
@@ -167,8 +180,10 @@ node --experimental-transform-types docs/references/native-cdp-probes/verify.mjs
 ├── AGENTS.md / CONTEXT.md / DESIGN.md
 ├── docs/                    # 工作流、参考说明和验证记录
 ├── openspec/                # change proposal、spec、design、tasks
+├── skills/xpi-visualoop/    # SKILL.md:模型据以判断「什么时候该看」的那段描述
+├── scripts/                 # trigger-eval.sh:should-call 冒烟评测
 ├── src/index.ts             # Pi 扩展注册入口
-├── src/visual-loop/         # 配置、CDP 客户端与动作、证据、反馈、上下文
+├── src/visual-loop/         # 配置、Chrome 启动器、CDP 客户端与动作、证据、反馈、上下文
 └── tests/                   # 聚焦单元/集成测试
 ```
 

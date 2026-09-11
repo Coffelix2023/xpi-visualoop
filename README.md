@@ -24,7 +24,7 @@ This extension closes that loop with three hard rules:
 - **A human can point.** `visual_feedback` opens a Glimpse panel over one capture or one comparison, so review is a region on the image instead of a paragraph in the chat.
 - **Comparability is decided, not assumed.** `visual_verify` refuses to compare when the caller will not declare the interaction state, and returns `comparable` or `not-comparable` instead of quietly reporting a difference that came from a navigation.
 
-It is deliberately read-only. The agent can look; it cannot click, type, scroll, or run page scripts. Everything runs against a dedicated browser profile you own, over the Chrome DevTools Protocol (CDP), with no external browser backend and no Python runtime. The transport is the `WebSocket` built into Node.js, so the package adds zero runtime dependencies.
+It is deliberately read-only. The agent can look; it cannot click, type, scroll, or run page scripts. Everything runs against a dedicated browser profile, over the Chrome DevTools Protocol (CDP), with no external browser backend and no Python runtime. The transport is the `WebSocket` built into Node.js and the launcher is `node:child_process`, so the package adds zero runtime dependencies.
 
 ## Install
 
@@ -52,7 +52,9 @@ The package ships TypeScript source and has no build step: `package.json` points
 
 ## Setup
 
-The extension never launches your browser, never touches your daily profile, and never falls back to another browser. Prepare a dedicated one:
+The extension never touches your daily profile and never falls back to another browser. It only starts a Chrome of its own when a visual tool needs the endpoint and nothing is listening there. That browser is a child process: `/xpi-visualoop disconnect` closes it, and Pi's own exit reaps it. A browser you started yourself is never adopted and never closed.
+
+Prepare one yourself when you want to control the window:
 
 ```bash
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
@@ -65,7 +67,7 @@ The extension never launches your browser, never touches your daily profile, and
 
 On Linux, use your distribution's Chrome or Chromium binary with the same flags.
 
-Then write a config file at `<agentDir>/xpi-visualoop.json`; a trusted project may override it at `<cwd>/.pi/xpi-visualoop.json`.
+Configuration is optional. Without it the extension uses the default endpoint `http://127.0.0.1:9333/`, the port in the command above. To point it somewhere else, write a config file at `<agentDir>/xpi-visualoop.json`; a trusted project may override it at `<cwd>/.pi/xpi-visualoop.json`.
 
 ```json
 {
@@ -73,7 +75,9 @@ Then write a config file at `<agentDir>/xpi-visualoop.json`; a trusted project m
 }
 ```
 
-`cdpUrl` is the only required key and must be an `http://` loopback endpoint. `glimpseModulePath` is optional and must be absolute. Unknown fields fail closed rather than being ignored.
+`cdpUrl` must be an `http://` loopback endpoint. `glimpseModulePath` is optional and must be absolute. Unknown fields, a mistyped `cdpUrl`, and an unparsable file still fail closed rather than being ignored; only the absent key falls back to the default.
+
+Set `XPI_VISUALOOP_CHROME` to an absolute browser path when Chrome is not in the default locations (macOS `/Applications`, or `google-chrome` / `chromium` on `PATH`).
 
 ### Migrating from `harnessPath`
 
@@ -102,10 +106,10 @@ By default `visual_verify` returns only the common region before and after. Pass
 
 ```text
 /xpi-visualoop status        # current inspection context
-/xpi-visualoop disconnect    # cancel work, invalidate evidence, release owned files
+/xpi-visualoop disconnect    # cancel work, release owned files, close the browser it started
 ```
 
-`disconnect` cancels pending operations, invalidates old evidence, removes extension-owned temporary files and browser resources, and leaves the browser process and profile alone.
+`disconnect` cancels pending operations, invalidates old evidence, removes extension-owned temporary files and browser resources, and closes the Chrome process this extension started. A browser you started yourself is left running.
 
 ## Limits and fallback behavior
 
@@ -131,7 +135,7 @@ Known limits:
 
 ## Files, privacy boundary, and rollback
 
-Screenshots and intermediate files live in a private temporary directory owned by the inspection. Cleanup removes only what this extension created. A hard crash can leave residue for a later ownership check. The browser process and profile remain yours.
+Screenshots and intermediate files live in a private temporary directory owned by the inspection. Cleanup removes only what this extension created. A hard crash can leave residue for a later ownership check. A Chrome the extension started is a child of the Pi process and is reaped on exit; the profile it writes is the dedicated `~/.cache/xpi-visualoop/chrome-profile` directory, never a daily profile.
 
 A screenshot returned in a tool result may be persisted by the Pi session or sent to your configured model service. Cleaning the extension's temporary directory does not delete those copies. Local capture is not a claim that the image never leaves the machine.
 
@@ -139,7 +143,7 @@ To roll back:
 
 1. Run `/xpi-visualoop disconnect` in the active Pi session.
 2. `pi remove git:github.com/Coffelix2023/xpi-visualoop` or delete the local path entry.
-3. Delete only the dedicated profile and temporary directories you created for this extension; never a daily browser profile.
+3. Delete only the dedicated profile and temporary directories this extension used; never a daily browser profile.
 
 ## Development
 
@@ -152,6 +156,15 @@ pnpm test            # Vitest, tests/ only
 ```
 
 All three must pass before a commit. The Vitest config collects only `tests/**/*.test.ts`; `docs/references` holds third-party sources and research-era probes with unrelated dependencies.
+
+The trigger surface is a shipped skill rather than a system-prompt snippet, so whether the model actually reaches for the tools is a model-behaviour question, not a code question. Measure it instead of assuming it:
+
+```bash
+scripts/trigger-eval.sh          # three fixed prompts, checks the session transcript
+scripts/trigger-eval.sh --case 2 # one case
+```
+
+Two positive cases must call `visual_prepare`; the negative case must not. Needs `pi` on PATH, a configured model, and a local dev server for the positive cases.
 
 A runnable acceptance probe for the full loop lives at `docs/references/native-cdp-probes/verify.mjs`:
 
@@ -167,8 +180,10 @@ It starts its own dedicated Chrome and page server, then exercises prepare, capt
 ├── AGENTS.md / CONTEXT.md / DESIGN.md
 ├── docs/                    # workflow, reference notes, and verification records
 ├── openspec/                # change proposals, specs, design, and tasks
+├── skills/xpi-visualoop/    # SKILL.md: the description the model reads to decide when to look
+├── scripts/                 # trigger-eval.sh: the should-call smoke eval
 ├── src/index.ts             # Pi extension registration
-├── src/visual-loop/         # config, CDP client and actions, evidence, feedback, context
+├── src/visual-loop/         # config, chrome launcher, CDP client and actions, evidence, feedback, context
 └── tests/                   # focused unit and integration tests
 ```
 
