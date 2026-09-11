@@ -435,6 +435,27 @@
 - `docs/references/browser-harness` 本地 clone 删除；固定参考点见下方「参考点」。
 - 本文第 2 节「参考仓库职责判断」中 browser-harness 一行与第 4 节「方案 A」保留为**历史决策记录**，不再是当前实现在用方案。
 
+### 当前运行方式（2026-09-12 补充）
+
+无外部运行时依赖：只需要 Node.js 和一个可达的回环 CDP 端点。启动一个专用 Chrome，独立 profile、独立调试端口，不触碰日常 profile：
+
+```bash
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --remote-debugging-port=9333 \
+  --user-data-dir="$HOME/.cache/xpi-visualoop/chrome-profile" \
+  --no-first-run \
+  --no-default-browser-check \
+  about:blank
+```
+
+配置只需 `cdpUrl`；`glimpseModulePath` 可选：
+
+```json
+{"cdpUrl":"http://127.0.0.1:9333/"}
+```
+
+**配置破坏性变更**：`harnessPath` 已从配置解析器移除。仍带该键的配置会 fail-closed 拒绝启动，并返回迁移提示；迁移动作只有一步——删除该键。可复现的验收脚本见 `docs/references/native-cdp-probes/verify.mjs`。
+
 ### 依据
 
 1. **支付成本但未获得收益。** browser-harness 的架构价值是 daemon + AF_UNIX IPC，服务「多 agent 进程共享同一浏览器、接管用户已登录 Chrome 标签页」。本项目实际用法是专用 Chrome、私有 workspace、私有 runtime dir、单进程顺序调用（`src/visual-loop/harness.ts` 的 `environment()` 把所有 `BH_*` 指向私有目录），daemon 的复杂度全部付账，核心能力一项未用。
