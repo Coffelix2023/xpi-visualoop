@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -7,6 +8,7 @@ import {
   HARNESS_MIGRATION_HINT,
   loadConfig,
   parseConfigText,
+  resolveCdpWebSocketUrl,
   validateEndpoint,
   validateLocalPageUrl,
 } from "../src/visual-loop/config.ts";
@@ -118,5 +120,31 @@ describe("visual loop config validation", () => {
     const result = await loadConfig(agentDir, cwd, true);
     expect(result.config).toBeUndefined();
     expect(result.diagnostics.join(" ")).toContain("not valid JSON");
+  });
+});
+
+describe("CDP endpoint discovery deadline", () => {
+  it("gives up when the endpoint accepts and never answers", async () => {
+    // An endpoint that completes the TCP handshake and then stays silent is
+    // what wedged visual_prepare; discovery must own a deadline of its own.
+    const sockets = new Set<Socket>();
+    const server = createServer((socket) => {
+      sockets.add(socket);
+      socket.on("close", () => sockets.delete(socket));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string")
+      throw new Error("silent endpoint has no port");
+    try {
+      await expect(
+        resolveCdpWebSocketUrl(`http://127.0.0.1:${address.port}/`, undefined, 100),
+      ).rejects.toThrow("did not answer within 100 ms");
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
   });
 });

@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { VisualLoopManager } from "../src/visual-loop/context.ts";
 import { type FakeCdpEndpoint, fakeCdp, fakePage } from "./helpers/fake-cdp.ts";
 
@@ -46,6 +46,7 @@ async function managed(create: () => Promise<FakeCdpEndpoint>) {
 }
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(managers.splice(0).map((manager) => manager.disconnect()));
   await Promise.all(endpoints.splice(0).map((endpoint) => endpoint.close()));
   await Promise.all(
@@ -77,11 +78,15 @@ describe("CDP connection lifecycle", () => {
     const manager = new VisualLoopManager();
     managers.push(manager);
     const ctx = context(await project("http://127.0.0.1:9/"));
+    // Nothing listens on port 9, so prepare also tries to start the owned
+    // browser; pinning the binary override to a missing path keeps that
+    // deterministic and stops the suite from launching a real Chrome.
+    vi.stubEnv("XPI_VISUALOOP_CHROME", join(tmpdir(), "xpi-no-such-chrome"));
     await expect(
       manager.prepare(ctx, {
         url: "http://127.0.0.1:8765/",
       }),
-    ).rejects.toThrow("unreachable");
+    ).rejects.toThrow("no Chrome or Chromium binary was found");
     expect(manager.status()).toEqual({
       state: "disconnected",
     });

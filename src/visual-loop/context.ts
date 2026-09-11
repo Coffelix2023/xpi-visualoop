@@ -722,6 +722,10 @@ export class VisualLoopManager {
     let lockPath: string | undefined;
     let evidenceDir: string | undefined;
     try {
+      // A cold start has nothing listening yet, and `cdp.connect` only reads an
+      // endpoint that already exists. Reachability is also the one step that may
+      // start the extension-owned browser, so it has to run first.
+      await validateEndpointReachability(config.cdpUrl, signal);
       await cdp.connect(config.cdpUrl, signal);
       await mkdir(LOCK_DIR, {
         mode: 0o700,

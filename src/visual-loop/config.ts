@@ -1,6 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
-import { DEFAULT_CDP_URL, ensureEndpoint, probeEndpoint } from "./chrome.ts";
+import {
+  CDP_CONNECT_TIMEOUT_MS,
+  DEFAULT_CDP_URL,
+  ensureEndpoint,
+  probeEndpoint,
+  withDeadline,
+} from "./chrome.ts";
 
 export interface VisualLoopConfig {
   cdpUrl: string;
@@ -199,14 +205,18 @@ export async function loadConfig(
 export async function resolveCdpWebSocketUrl(
   cdpUrl: string,
   signal?: AbortSignal,
+  /** Override only for tests; production always uses the module default. */
+  timeoutMs = CDP_CONNECT_TIMEOUT_MS,
 ): Promise<string> {
   const endpoint = new URL("/json/version", cdpUrl);
   let response: Response;
   try {
     response = await fetch(endpoint, {
-      signal,
+      signal: withDeadline(signal, timeoutMs),
     });
-  } catch {
+  } catch (error) {
+    if ((error as Error | undefined)?.name === "TimeoutError")
+      throw new Error(`configured CDP endpoint did not answer within ${timeoutMs} ms`);
     throw new Error("configured CDP endpoint is unreachable");
   }
   if (!response.ok)
@@ -244,12 +254,19 @@ export async function validateEndpointReachability(
   cdpUrl: string,
   signal?: AbortSignal,
 ): Promise<void> {
+  // Discovery and the probe ask the same question, so they share one budget: a
+  // silent endpoint must not pay the connect timeout twice before the launch
+  // step is even attempted.
+  const preflight = withDeadline(signal, CDP_CONNECT_TIMEOUT_MS);
   try {
-    await resolveCdpWebSocketUrl(cdpUrl, signal);
+    await resolveCdpWebSocketUrl(cdpUrl, preflight);
     return;
   } catch (error) {
     if (signal?.aborted) throw error;
-    if (await probeEndpoint(cdpUrl, signal)) throw error;
+    // A budget that ran out means something occupies the port and never
+    // answers it; starting our own browser on that port cannot help.
+    if (preflight.aborted) throw error;
+    if (await probeEndpoint(cdpUrl, preflight)) throw error;
     await ensureEndpoint(cdpUrl, signal);
     try {
       await resolveCdpWebSocketUrl(cdpUrl, signal);

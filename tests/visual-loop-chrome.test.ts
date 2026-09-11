@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -6,6 +7,7 @@ import {
   CHROME_BINARY_ENV,
   chromeCandidates,
   chromeProfileDirectory,
+  probeEndpoint,
   resolveChromeBinary,
   waitUntilReady,
 } from "../src/visual-loop/chrome.ts";
@@ -105,6 +107,35 @@ describe("endpoint readiness polling", () => {
         pollMs: 1,
       }),
     ).rejects.toThrow("did not expose a CDP endpoint");
+  });
+
+  it("gives up at the deadline when the endpoint accepts and never answers", async () => {
+    // Chrome can complete the TCP handshake and then stay silent. A probe
+    // without its own bound would never return, and the checks above would
+    // never run again — the exact way visual_prepare wedged before.
+    const sockets = new Set<Socket>();
+    const server = createServer((socket) => {
+      sockets.add(socket);
+      socket.on("close", () => sockets.delete(socket));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string")
+      throw new Error("silent endpoint has no port");
+    const cdpUrl = `http://127.0.0.1:${address.port}/`;
+    try {
+      await expect(
+        waitUntilReady((signal) => probeEndpoint(cdpUrl, signal), {
+          deadlineMs: 50,
+          pollMs: 1,
+        }),
+      ).rejects.toThrow("did not expose a CDP endpoint");
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
   });
 
   it("stops when the caller cancels", async () => {

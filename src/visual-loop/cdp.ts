@@ -1,3 +1,4 @@
+import { CDP_CONNECT_TIMEOUT_MS, withDeadline } from "./chrome.ts";
 import { resolveCdpWebSocketUrl } from "./config.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -184,10 +185,13 @@ export class CdpClient {
       const socket = new WebSocket(wsUrl);
       this.socket = socket;
       let settled = false;
+      // A peer that accepts the upgrade request and never answers it would
+      // leave `connect` pending forever, so the attempt owns a deadline.
+      const deadline = withDeadline(signal, CDP_CONNECT_TIMEOUT_MS);
       const finish = (error?: Error) => {
         if (settled) return;
         settled = true;
-        signal?.removeEventListener("abort", onAbort);
+        deadline.removeEventListener("abort", onAbort);
         if (error) {
           this.socket = undefined;
           socket.close();
@@ -197,13 +201,19 @@ export class CdpClient {
         resolve();
       };
       const onAbort = () => {
-        finish(new Error("CDP connection cancelled"));
+        finish(
+          signal?.aborted
+            ? new Error("CDP connection cancelled")
+            : new Error(
+                `CDP WebSocket handshake timed out after ${CDP_CONNECT_TIMEOUT_MS} ms`,
+              ),
+        );
       };
-      if (signal?.aborted) {
+      if (deadline.aborted) {
         onAbort();
         return;
       }
-      signal?.addEventListener("abort", onAbort, {
+      deadline.addEventListener("abort", onAbort, {
         once: true,
       });
       socket.addEventListener("open", () => finish());

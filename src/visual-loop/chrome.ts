@@ -23,6 +23,31 @@ const PROFILE_DIRECTORY = ".cache/xpi-visualoop/chrome-profile";
 const READY_POLL_MS = 150;
 const READY_TIMEOUT_MS = 10_000;
 
+/**
+ * Hard ceiling for a single CDP exchange: the endpoint discovery fetch and
+ * the WebSocket handshake that follows it. 15 s is a deliberately generous
+ * value so a slow cold start is still allowed to win.
+ */
+export const CDP_CONNECT_TIMEOUT_MS = 15_000;
+
+/**
+ * Combine the caller's cancellation with a hard deadline. Every CDP step runs
+ * on an endpoint that can accept a connection and then never answer, so a step
+ * without its own deadline can hang the caller forever.
+ */
+export function withDeadline(
+  signal: AbortSignal | undefined,
+  timeoutMs: number,
+): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return signal
+    ? AbortSignal.any([
+        signal,
+        timeout,
+      ])
+    : timeout;
+}
+
 interface OwnedChrome {
   cdpUrl: string;
   process: ChildProcess;
@@ -95,7 +120,7 @@ export async function probeEndpoint(
 ): Promise<boolean> {
   try {
     const response = await fetch(new URL("/json/version", cdpUrl), {
-      signal,
+      signal: withDeadline(signal, CDP_CONNECT_TIMEOUT_MS),
     });
     return response.ok;
   } catch {
@@ -120,11 +145,14 @@ export async function waitUntilReady(
   for (;;) {
     if (options.signal?.aborted)
       throw new Error("the visual loop was cancelled while starting the browser");
-    if (await probe(options.signal)) return;
-    if (Date.now() - startedAt >= deadlineMs)
+    const remainingMs = deadlineMs - (Date.now() - startedAt);
+    if (remainingMs <= 0)
       throw new Error(
         `the browser did not expose a CDP endpoint within ${deadlineMs} ms`,
       );
+    // The probe carries the remaining budget, so a browser that accepts the
+    // request and never answers cannot outlive the deadline above.
+    if (await probe(withDeadline(options.signal, remainingMs))) return;
     await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
 }
