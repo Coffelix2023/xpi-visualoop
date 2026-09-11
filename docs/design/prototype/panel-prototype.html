@@ -1,0 +1,1135 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>xpi-visualoop · 反馈面板原型 v0（待审核）</title>
+<style>
+/* ==========================================================================
+   Palette A —— 你提供的第一套 token（原文照抄，仅把 :root / .dark 换成
+   .palette-a / .palette-a.dark，使两套主题能在同一页里并列对比）
+   ========================================================================== */
+.palette-a {
+  --background: oklch(0.9818 0.0054 95.0986);
+  --foreground: oklch(0.3438 0.0269 95.7226);
+  --card: oklch(0.9818 0.0054 95.0986);
+  --card-foreground: oklch(0.1908 0.0020 106.5859);
+  --popover: oklch(1.0000 0 0);
+  --popover-foreground: oklch(0.2671 0.0196 98.9390);
+  --primary: oklch(0.6171 0.1375 39.0427);
+  --primary-foreground: oklch(1.0000 0 0);
+  --secondary: oklch(0.9245 0.0138 92.9892);
+  --secondary-foreground: oklch(0.4334 0.0177 98.6048);
+  --muted: oklch(0.9341 0.0153 90.2390);
+  --muted-foreground: oklch(0.6059 0.0075 97.4233);
+  --accent: oklch(0.9245 0.0138 92.9892);
+  --accent-foreground: oklch(0.2671 0.0196 98.9390);
+  --destructive: oklch(0.1908 0.0020 106.5859);
+  --destructive-foreground: oklch(1.0000 0 0);
+  --border: oklch(0.8847 0.0069 97.3627);
+  --input: oklch(0.7621 0.0156 98.3528);
+  --ring: oklch(0.6171 0.1375 39.0427);
+  --chart-1: oklch(0.5583 0.1276 42.9956);
+  --chart-2: oklch(0.6898 0.1581 290.4107);
+  --chart-3: oklch(0.8816 0.0276 93.1280);
+  --chart-4: oklch(0.8822 0.0403 298.1792);
+  --chart-5: oklch(0.5608 0.1348 42.0584);
+  --sidebar: oklch(0.9663 0.0080 98.8792);
+  --sidebar-foreground: oklch(0.3590 0.0051 106.6524);
+  --sidebar-primary: oklch(0.6171 0.1375 39.0427);
+  --sidebar-primary-foreground: oklch(0.9881 0 0);
+  --sidebar-accent: oklch(0.9245 0.0138 92.9892);
+  --sidebar-accent-foreground: oklch(0.3250 0 0);
+  --sidebar-border: oklch(0.9401 0 0);
+  --sidebar-ring: oklch(0.7731 0 0);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --radius: 0.5rem;
+  --shadow-2xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
+  --shadow-xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
+  --shadow-sm: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 1px 2px -1px hsl(0 0% 0% / 0.10);
+  --shadow: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 1px 2px -1px hsl(0 0% 0% / 0.10);
+  --shadow-md: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 2px 4px -1px hsl(0 0% 0% / 0.10);
+  --shadow-lg: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 4px 6px -1px hsl(0 0% 0% / 0.10);
+  --shadow-xl: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 8px 10px -1px hsl(0 0% 0% / 0.10);
+  --shadow-2xl: 0 1px 3px 0px hsl(0 0% 0% / 0.25);
+}
+.palette-a.dark {
+  --background: oklch(0.2679 0.0036 106.6427);
+  --foreground: oklch(0.8074 0.0142 93.0137);
+  --card: oklch(0.2679 0.0036 106.6427);
+  --card-foreground: oklch(0.9818 0.0054 95.0986);
+  --popover: oklch(0.3085 0.0035 106.6039);
+  --popover-foreground: oklch(0.9211 0.0040 106.4781);
+  --primary: oklch(0.6724 0.1308 38.7559);
+  --primary-foreground: oklch(1.0000 0 0);
+  --secondary: oklch(0.9818 0.0054 95.0986);
+  --secondary-foreground: oklch(0.3085 0.0035 106.6039);
+  --muted: oklch(0.2213 0.0038 106.7070);
+  --muted-foreground: oklch(0.7713 0.0169 99.0657);
+  --accent: oklch(0.2130 0.0078 95.4245);
+  --accent-foreground: oklch(0.9663 0.0080 98.8792);
+  --destructive: oklch(0.6368 0.2078 25.3313);
+  --destructive-foreground: oklch(1.0000 0 0);
+  --border: oklch(0.3618 0.0101 106.8928);
+  --input: oklch(0.4336 0.0113 100.2195);
+  --ring: oklch(0.6724 0.1308 38.7559);
+  --chart-1: oklch(0.5583 0.1276 42.9956);
+  --chart-2: oklch(0.6898 0.1581 290.4107);
+  --chart-3: oklch(0.2130 0.0078 95.4245);
+  --chart-4: oklch(0.3074 0.0516 289.3230);
+  --chart-5: oklch(0.5608 0.1348 42.0584);
+  --sidebar: oklch(0.2357 0.0024 67.7077);
+  --sidebar-foreground: oklch(0.8074 0.0142 93.0137);
+  --sidebar-primary: oklch(0.3250 0 0);
+  --sidebar-primary-foreground: oklch(0.9881 0 0);
+  --sidebar-accent: oklch(0.1680 0.0020 106.6177);
+  --sidebar-accent-foreground: oklch(0.8074 0.0142 93.0137);
+  --sidebar-border: oklch(0.9401 0 0);
+  --sidebar-ring: oklch(0.7731 0 0);
+}
+/* ==========================================================================
+   Palette B —— 你提供的第二套 token（同样只做作用域改名）
+   ========================================================================== */
+.palette-b {
+  --background: oklch(0.9529 0.0146 102.4597);
+  --foreground: oklch(0.4063 0.0255 40.3627);
+  --card: oklch(0.9529 0.0146 102.4597);
+  --card-foreground: oklch(0.4063 0.0255 40.3627);
+  --popover: oklch(1.0000 0 0);
+  --popover-foreground: oklch(0.4063 0.0255 40.3627);
+  --primary: oklch(0.6083 0.0623 44.3588);
+  --primary-foreground: oklch(1.0000 0 0);
+  --secondary: oklch(0.7473 0.0387 80.5476);
+  --secondary-foreground: oklch(1.0000 0 0);
+  --muted: oklch(0.8502 0.0389 49.0874);
+  --muted-foreground: oklch(0.5416 0.0512 37.2132);
+  --accent: oklch(0.8502 0.0389 49.0874);
+  --accent-foreground: oklch(0.4063 0.0255 40.3627);
+  --destructive: oklch(0.2225 0.0098 52.9636);
+  --destructive-foreground: oklch(1.0000 0 0);
+  --border: oklch(0.7473 0.0387 80.5476);
+  --input: oklch(0.7473 0.0387 80.5476);
+  --ring: oklch(0.6083 0.0623 44.3588);
+  --chart-1: oklch(0.6083 0.0623 44.3588);
+  --chart-2: oklch(0.5416 0.0512 37.2132);
+  --chart-3: oklch(0.7272 0.0539 52.3320);
+  --chart-4: oklch(0.7473 0.0387 80.5476);
+  --chart-5: oklch(0.6440 0.0405 52.3917);
+  --sidebar: oklch(0.8903 0.0278 49.5658);
+  --sidebar-foreground: oklch(0.4063 0.0255 40.3627);
+  --sidebar-primary: oklch(0.6083 0.0623 44.3588);
+  --sidebar-primary-foreground: oklch(1.0000 0 0);
+  --sidebar-accent: oklch(0.7272 0.0539 52.3320);
+  --sidebar-accent-foreground: oklch(1.0000 0 0);
+  --sidebar-border: oklch(0.6440 0.0405 52.3917);
+  --sidebar-ring: oklch(0.6083 0.0623 44.3588);
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: Georgia, serif;
+  --font-mono: Menlo, ui-monospace, monospace;
+  --radius: 0.5rem;
+  --shadow-2xs: 2px 2px 0px 0px hsl(20 18% 51% / 0.06);
+  --shadow-xs: 2px 2px 0px 0px hsl(20 18% 51% / 0.06);
+  --shadow-sm: 2px 2px 0px 0px hsl(20 18% 51% / 0.11), 2px 1px 2px -1px hsl(20 18% 51% / 0.11);
+  --shadow: 2px 2px 0px 0px hsl(20 18% 51% / 0.11), 2px 1px 2px -1px hsl(20 18% 51% / 0.11);
+  --shadow-md: 2px 2px 0px 0px hsl(20 18% 51% / 0.11), 2px 2px 4px -1px hsl(20 18% 51% / 0.11);
+  --shadow-lg: 2px 2px 0px 0px hsl(20 18% 51% / 0.11), 2px 4px 6px -1px hsl(20 18% 51% / 0.11);
+  --shadow-xl: 2px 2px 0px 0px hsl(20 18% 51% / 0.11), 2px 8px 10px -1px hsl(20 18% 51% / 0.11);
+  --shadow-2xl: 2px 2px 0px 0px hsl(20 18% 51% / 0.28);
+}
+.palette-b.dark {
+  --background: oklch(0.2721 0.0141 48.1783);
+  --foreground: oklch(0.9529 0.0146 102.4597);
+  --card: oklch(0.3291 0.0156 50.8936);
+  --card-foreground: oklch(0.9529 0.0146 102.4597);
+  --popover: oklch(0.3291 0.0156 50.8936);
+  --popover-foreground: oklch(0.9529 0.0146 102.4597);
+  --primary: oklch(0.7272 0.0539 52.3320);
+  --primary-foreground: oklch(0.2721 0.0141 48.1783);
+  --secondary: oklch(0.5416 0.0512 37.2132);
+  --secondary-foreground: oklch(0.9529 0.0146 102.4597);
+  --muted: oklch(0.4063 0.0255 40.3627);
+  --muted-foreground: oklch(0.7575 0.0380 50.8610);
+  --accent: oklch(0.7473 0.0387 80.5476);
+  --accent-foreground: oklch(0.2721 0.0141 48.1783);
+  --destructive: oklch(0.6875 0.1420 21.4566);
+  --destructive-foreground: oklch(0.2721 0.0141 48.1783);
+  --border: oklch(0.4063 0.0255 40.3627);
+  --input: oklch(0.4063 0.0255 40.3627);
+  --ring: oklch(0.7272 0.0539 52.3320);
+  --chart-1: oklch(0.7272 0.0539 52.3320);
+  --chart-2: oklch(0.7473 0.0387 80.5476);
+  --chart-3: oklch(0.6083 0.0623 44.3588);
+  --chart-4: oklch(0.5416 0.0512 37.2132);
+  --chart-5: oklch(0.6440 0.0405 52.3917);
+  --sidebar: oklch(0.2225 0.0098 52.9636);
+  --sidebar-foreground: oklch(0.9529 0.0146 102.4597);
+  --sidebar-primary: oklch(0.7272 0.0539 52.3320);
+  --sidebar-primary-foreground: oklch(0.2225 0.0098 52.9636);
+  --sidebar-accent: oklch(0.7473 0.0387 80.5476);
+  --sidebar-accent-foreground: oklch(0.2225 0.0098 52.9636);
+  --sidebar-border: oklch(0.4063 0.0255 40.3627);
+  --sidebar-ring: oklch(0.7272 0.0539 52.3320);
+  --shadow-2xs: 2px 2px 0px 0px hsl(20 18% 30% / 0.06);
+  --shadow-xs: 2px 2px 0px 0px hsl(20 18% 30% / 0.06);
+  --shadow-sm: 2px 2px 0px 0px hsl(20 18% 30% / 0.11), 2px 1px 2px -1px hsl(20 18% 30% / 0.11);
+  --shadow: 2px 2px 0px 0px hsl(20 18% 30% / 0.11), 2px 1px 2px -1px hsl(20 18% 30% / 0.11);
+  --shadow-md: 2px 2px 0px 0px hsl(20 18% 30% / 0.11), 2px 2px 4px -1px hsl(20 18% 30% / 0.11);
+  --shadow-lg: 2px 2px 0px 0px hsl(20 18% 30% / 0.11), 2px 4px 6px -1px hsl(20 18% 30% / 0.11);
+  --shadow-xl: 2px 2px 0px 0px hsl(20 18% 30% / 0.11), 2px 8px 10px -1px hsl(20 18% 30% / 0.11);
+  --shadow-2xl: 2px 2px 0px 0px hsl(20 18% 30% / 0.28);
+}
+/* ==========================================================================
+   面板本体（下面全部只引用 var()，换 palette / dark 即整体换肤）
+   ========================================================================== */
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+input, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+
+.shell { max-width: 1320px; margin: 0 auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+
+/* --- 顶部：审核工具条（原型专用，不属于最终面板） --- */
+.review-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  padding: 10px 12px; background: var(--card); color: var(--card-foreground);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+.review-bar .tag {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted-foreground); padding: 2px 0;
+}
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.seg > button {
+  background: transparent; border: 0; padding: 5px 10px; color: var(--muted-foreground);
+  border-right: 1px solid var(--border);
+}
+.seg > button:last-child { border-right: 0; }
+.seg > button[aria-pressed="true"] { background: var(--primary); color: var(--primary-foreground); }
+.spacer { flex: 1 1 auto; }
+.note { color: var(--muted-foreground); font-size: 11px; }
+
+/* --- 面板窗口（模拟 Glimpse 1280×840） --- */
+.window {
+  background: var(--card); color: var(--card-foreground);
+  border: 1px solid var(--border); border-radius: calc(var(--radius) + 4px);
+  box-shadow: var(--shadow-xl);
+  display: flex; flex-direction: column; height: min(840px, calc(100vh - 140px)); overflow: hidden;
+}
+.window > header {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+}
+.title { font-size: 14px; font-weight: 600; margin: 0; }
+.meta { color: var(--muted-foreground); font-size: 11px; font-family: var(--font-mono); word-break: break-all; }
+.meta-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }
+.chip {
+  border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px;
+  font-family: var(--font-mono); font-size: 10px; color: var(--muted-foreground);
+}
+.chip[data-tone="warn"] { color: var(--destructive); border-color: var(--destructive); }
+.toolbar { display: flex; gap: 6px; }
+.icon-btn {
+  background: var(--secondary); color: var(--secondary-foreground);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 4px 9px; font-size: 12px;
+}
+.body { flex: 1 1 auto; display: grid; grid-template-columns: minmax(0,1fr) 344px; min-height: 0; }
+.stage {
+  min-width: 0; min-height: 0; overflow: auto; padding: 14px;
+  background: var(--muted); border-right: 1px solid var(--border);
+}
+.stage.compare { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; align-content: start; }
+.stage.compare .mock { width: 352px; padding: 12px; }
+.stage.compare .mock .card { max-width: 100%; }
+figure { margin: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+figcaption {
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--font-mono); font-size: 10px; color: var(--muted-foreground);
+}
+figcaption b { color: var(--card-foreground); font-family: var(--font-sans); font-size: 11px; font-weight: 600; }
+
+/* --- 截图舞台：这里的“截图”是真实 DOM，所以点选热点是真的 --- */
+.shot {
+  position: relative; width: max-content; padding: 14px;
+  background: var(--popover); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+}
+.shot.pick { cursor: crosshair; }
+.frame { position: relative; width: max-content; }
+.frame .overlay { position: absolute; inset: 0; pointer-events: none; }
+.hot, .hot-selected {
+  position: absolute; border-radius: 3px; pointer-events: none;
+  transition: opacity .1s ease-out;
+}
+.hot { border: 1.5px dashed var(--primary); background: color-mix(in srgb, var(--primary) 16%, transparent); }
+.hot-selected { border: 2px solid var(--ring); background: color-mix(in srgb, var(--ring) 22%, transparent); }
+.hot-label {
+  position: absolute; pointer-events: none; white-space: nowrap;
+  background: var(--popover); color: var(--popover-foreground);
+  border: 1px solid var(--border); border-radius: 4px; padding: 2px 7px;
+  font-family: var(--font-mono); font-size: 10px; box-shadow: var(--shadow);
+}
+
+/* --- 被观察页面（固定色，与面板主题无关 —— 它是“截图”） --- */
+.mock { width: 620px; padding: 18px; background: #f5f6f8; font: 14px/1.5 -apple-system, "Helvetica Neue", Arial, sans-serif; color: #1a1a1a; }
+.mock .card { background: #fff; border: 1px solid #e3e5e9; border-radius: 10px; max-width: 420px; }
+.mock h1 { margin: 0; font-size: 16px; }
+.mock .row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 12px; }
+.mock .row + .row { border-top: 1px solid #edeff2; }
+.mock .head { padding: 8px 12px; border-bottom: 1px solid #edeff2; }
+.mock .hint { color: #9c9c9c; font-size: 12px; margin: 4px 0 0; }
+.mock .label { font-weight: 600; }
+.mock button { font: inherit; cursor: pointer; border-radius: 6px; }
+.mock .ghost { background: #fff; color: #444; border: 1px solid #d5d8de; padding: 5px 14px; }
+.mock .primary { background: #2563eb; color: #fff; border: 1px solid #2563eb; padding: 5px 10px; font-size: 13px; }
+.mock .foot { display: flex; gap: 10px; justify-content: flex-end; padding: 8px 12px; border-top: 1px solid #edeff2; }
+/* B1 紧凑版 */
+.mock.v-compact .hint { color: #5b6270; font-size: 13px; }
+.mock.v-compact .head, .mock.v-compact .row { padding: 13px 16px; }
+.mock.v-compact .foot { padding: 16px; }
+.mock.v-compact .primary { padding: 9px 18px; font-size: 14px; font-weight: 600; }
+/* B2 宽松版 */
+.mock.v-airy .card { max-width: 460px; box-shadow: 0 8px 24px rgba(16,24,40,.12); }
+.mock.v-airy .hint { color: #4a5261; font-size: 13px; }
+.mock.v-airy h1 { font-size: 20px; }
+.mock.v-airy .head, .mock.v-airy .row { padding: 20px 24px; }
+.mock.v-airy .foot { padding: 24px; justify-content: stretch; }
+.mock.v-airy .primary { padding: 12px 18px; font-size: 15px; font-weight: 600; width: 100%; }
+.mock.v-airy .ghost { padding: 12px 18px; }
+
+/* --- 右侧栏 --- */
+.rail {
+  min-width: 0; overflow: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px;
+  background: var(--card);
+}
+.block { display: flex; flex-direction: column; gap: 6px; }
+.block > h2 {
+  margin: 0; font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted-foreground); font-weight: 600;
+}
+.question { font-size: 13px; font-weight: 600; }
+.options { display: flex; flex-direction: column; gap: 6px; }
+.option {
+  display: flex; align-items: center; gap: 8px; padding: 7px 9px;
+  background: var(--secondary); color: var(--secondary-foreground);
+  border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer;
+}
+.option[aria-checked="true"] { border-color: var(--ring); box-shadow: inset 0 0 0 1px var(--ring); }
+.option .k { font-family: var(--font-mono); font-size: 10px; color: var(--muted-foreground); }
+.option .l { display: block; font-size: 12px; font-weight: 600; }
+.option .d { display: block; font-size: 11px; color: var(--muted-foreground); }
+
+.candidates { display: flex; flex-direction: column; gap: 3px; max-height: 148px; overflow: auto; }
+.cand {
+  display: grid; grid-template-columns: 16px minmax(0,1fr); gap: 6px; align-items: baseline;
+  text-align: left; padding: 5px 7px; background: transparent; color: inherit;
+  border: 1px solid transparent; border-radius: 6px;
+}
+.cand:hover { background: var(--accent); color: var(--accent-foreground); }
+.cand[aria-current="true"] { background: var(--accent); color: var(--accent-foreground); border-color: var(--border); }
+.cand .idx { font-family: var(--font-mono); font-size: 10px; color: var(--muted-foreground); }
+.cand .sel { font-family: var(--font-mono); font-size: 11px; display: block; }
+.cand .txt { display: block; font-size: 11px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.grid4 { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 6px; }
+.grid4 label { display: grid; gap: 3px; font-size: 10px; color: var(--muted-foreground); }
+.grid4 input {
+  width: 100%; min-width: 0; padding: 5px 6px; border-radius: 6px;
+  background: var(--background); border: 1px solid var(--input);
+  font-family: var(--font-mono); font-size: 11px;
+}
+.grid4 input[readonly] { color: var(--muted-foreground); background: var(--muted); border-style: dashed; }
+textarea {
+  width: 100%; min-height: 62px; resize: vertical; padding: 7px 8px; border-radius: 6px;
+  background: var(--background); border: 1px solid var(--input);
+}
+.out {
+  margin: 0; padding: 9px 10px; border-radius: 6px; overflow: auto; max-height: 150px;
+  background: var(--muted); border: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: 11px; white-space: pre-wrap; word-break: break-word;
+}
+.window > footer {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 10px 16px; border-top: 1px solid var(--border);
+}
+.keys { font-family: var(--font-mono); font-size: 10px; color: var(--muted-foreground); }
+.actions { display: flex; gap: 8px; }
+.btn { border: 1px solid var(--border); background: var(--secondary); color: var(--secondary-foreground); border-radius: var(--radius); padding: 7px 13px; }
+.btn.primary { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); font-weight: 600; }
+.btn.danger { background: transparent; border-color: var(--destructive); color: var(--destructive); }
+/* palette B 的 --secondary-foreground 是白色，透明底上必须改用 popover-foreground */
+.btn.ghost { background: transparent; color: var(--popover-foreground); }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+
+/* --- 取消后的追问弹层 --- */
+[hidden] { display: none !important; }
+.scrim {
+  position: fixed; inset: 0; background: color-mix(in srgb, var(--foreground) 45%, transparent);
+  display: grid; place-items: center; padding: 20px; z-index: 40;
+}
+.dialog {
+  width: min(460px, 100%); background: var(--popover); color: var(--popover-foreground);
+  border: 1px solid var(--border); border-radius: calc(var(--radius) + 4px);
+  box-shadow: var(--shadow-2xl); padding: 16px; display: flex; flex-direction: column; gap: 10px;
+}
+.dialog h2 { margin: 0; font-size: 14px; }
+.dialog p { margin: 0; font-size: 12px; color: var(--muted-foreground); }
+.dialog .actions { justify-content: flex-end; flex-wrap: wrap; }
+.hr { height: 1px; background: var(--border); }
+.legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; color: var(--muted-foreground); }
+.legend b { color: var(--card-foreground); font-weight: 600; }
+.kbd {
+  font-family: var(--font-mono); font-size: 10px; border: 1px solid var(--border);
+  border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--secondary);
+}
+</style>
+</head>
+<body class="palette-a dark">
+
+<div class="shell">
+  <!-- 原型审核工具条（最终面板里不存在） -->
+  <div class="review-bar">
+    <span class="tag">prototype review</span>
+    <div class="seg" role="group" aria-label="Palette">
+      <button type="button" data-palette="a" aria-pressed="true">A · 你给的第 1 套</button>
+      <button type="button" data-palette="b" aria-pressed="false">B · 你给的第 2 套</button>
+    </div>
+    <div class="seg" role="group" aria-label="Theme">
+      <button type="button" data-scheme="dark" aria-pressed="true">深色</button>
+      <button type="button" data-scheme="light" aria-pressed="false">浅色</button>
+    </div>
+    <div class="seg" role="group" aria-label="Language">
+      <button type="button" data-lang="zh" aria-pressed="true">中文</button>
+      <button type="button" data-lang="en" aria-pressed="false">EN</button>
+    </div>
+    <span class="spacer"></span>
+    <span class="note" data-i18n="reviewNote"></span>
+  </div>
+
+  <!-- ======================= 面板本体 ======================= -->
+  <div class="window" id="window">
+    <header>
+      <div style="min-width:0">
+        <h1 class="title" id="panelTitle">视觉反馈</h1>
+        <div class="meta-row">
+          <span class="chip" id="identity">capture-…</span>
+          <span class="chip" id="statusChip" data-tone="warn">degraded</span>
+          <span class="chip" id="modeChip">capture</span>
+          <span class="chip" id="pickChip">点选元素</span>
+        </div>
+        <div class="meta" id="pageMeta" style="margin-top:6px"></div>
+      </div>
+      <div class="toolbar">
+        <button class="icon-btn" type="button" id="zoomOut" title="Zoom out">A−</button>
+        <button class="icon-btn" type="button" id="zoomReset" title="Reset zoom">⟲</button>
+        <button class="icon-btn" type="button" id="zoomIn" title="Zoom in">A+</button>
+      </div>
+    </header>
+
+    <div class="body">
+      <div class="stage" id="stage"></div>
+
+      <aside class="rail">
+        <!-- 结构化提问（选型模式 / 或调用方显式提问时出现） -->
+        <section class="block" id="questionBlock" hidden>
+          <h2 data-i18n="questionHeading"></h2>
+          <p class="question" id="questionText"></p>
+          <div class="options" id="options" role="radiogroup"></div>
+          <div class="hr"></div>
+          <p class="note" data-i18n="questionNote"></p>
+        </section>
+
+        <!-- 候选元素（点选模式的可键盘路径） -->
+        <section class="block" id="candidateBlock">
+          <h2 data-i18n="candidateHeading"></h2>
+          <div class="candidates" id="candidates" role="listbox" aria-label="Candidate elements"></div>
+        </section>
+
+        <section class="block">
+          <h2 data-i18n="regionHeading"></h2>
+          <div class="grid4">
+            <label>X<input id="rx" type="number" min="0" step="1" value="0" readonly></label>
+            <label>Y<input id="ry" type="number" min="0" step="1" value="0" readonly></label>
+            <label>W<input id="rw" type="number" min="1" step="1" value="1" readonly></label>
+            <label>H<input id="rh" type="number" min="1" step="1" value="1" readonly></label>
+          </div>
+          <p class="note" data-i18n="regionHint"></p>
+        </section>
+
+        <section class="block">
+          <h2 data-i18n="commentHeading"></h2>
+          <textarea id="comment" maxlength="2000" data-i18n-placeholder="commentPlaceholder"></textarea>
+        </section>
+
+        <section class="block">
+          <h2 data-i18n="resultHeading"></h2>
+          <pre class="out" id="result">—</pre>
+        </section>
+      </aside>
+    </div>
+
+    <footer>
+      <span class="keys"><span class="kbd">Esc</span> <span data-i18n="keyEsc"></span> · <span class="kbd">Enter</span> <span data-i18n="keyEnter"></span> · <span class="kbd">↑↓</span> <span data-i18n="keyArrows"></span></span>
+      <div class="actions">
+        <button class="btn danger" type="button" id="btnCancel" data-i18n="cancel"></button>
+        <button class="btn primary" type="button" id="btnSubmit" data-i18n="submit"></button>
+      </div>
+    </footer>
+  </div>
+
+  <div class="legend">
+    <span><b>校验点 1</b> — <span data-i18n="legend1"></span></span>
+    <span><b>校验点 2</b> — <span data-i18n="legend2"></span></span>
+  </div>
+</div>
+
+<!-- 取消后的追问弹层 -->
+<div class="scrim" id="scrim" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+    <h2 id="dlgTitle" data-i18n="cancelTitle"></h2>
+    <p data-i18n="cancelBody"></p>
+    <div class="hr"></div>
+    <div class="actions">
+      <button class="btn ghost" type="button" id="dlgSkip" data-i18n="cancelSkip"></button>
+      <button class="btn ghost" type="button" id="dlgNever" data-i18n="cancelNever"></button>
+      <button class="btn primary" type="button" id="dlgReopen" data-i18n="cancelReopen"></button>
+    </div>
+  </div>
+</div>
+
+<template id="mockTpl">
+  <div class="mock">
+    <section class="card" data-sel="section.card" data-role="region" data-text="Workspace settings">
+      <div class="head" data-sel=".head" data-role="group" data-text="Workspace settings / Changes apply to everyone in this workspace.">
+        <h1 data-sel=".head h1" data-role="heading" data-text="Workspace settings">Workspace settings</h1>
+        <p class="hint" data-sel=".head .hint" data-role="paragraph" data-text="Changes apply to everyone in this workspace.">Changes apply to everyone in this workspace.</p>
+      </div>
+      <div class="row" data-sel=".row:nth-of-type(2)" data-role="group" data-text="Display name — Acme Design">
+        <span class="label">Display name</span><span class="hint">Acme Design</span>
+      </div>
+      <div class="row" data-sel=".row:nth-of-type(3)" data-role="group" data-text="Notification digest — Weekly, Monday 9:00">
+        <span class="label">Notification digest</span><span class="hint">Weekly, Monday 9:00</span>
+      </div>
+      <div class="row" data-sel=".row:nth-of-type(4)" data-role="group" data-text="Auto-save drafts — Every 30 seconds">
+        <span class="label">Auto-save drafts</span><span class="hint">Every 30 seconds</span>
+      </div>
+      <div class="foot" data-sel=".foot" data-role="group" data-text="Cancel / Save changes">
+        <button class="ghost" type="button" data-sel=".foot .ghost" data-role="button" data-text="Cancel">Cancel</button>
+        <button class="primary" type="button" id="save-button" data-sel="#save-button" data-role="button" data-text="Save changes">Save changes</button>
+      </div>
+    </section>
+  </div>
+</template>
+
+<script>
+(() => {
+  "use strict";
+
+  const I18N = {
+    zh: {
+      reviewNote: "原型 · 用顶部开关换配色/主题/语言，用窗口里的开关对比「拖动框选」与「点选元素」手感",
+      panelTitleCapture: "视觉反馈",
+      panelTitleVariant: "版本选型",
+      questionHeading: "需要你决定的问题",
+      questionNote: "有选项时，region 与评论都是可选的：点一下就能给出结构化答案，模型不必解析自由文本。",
+      candidateHeading: "候选元素（可键盘 ↑↓ 选择）",
+      regionHeading: "反馈区域",
+      regionHint: "点选模式下由元素自动填入，只读；拖动模式下可手改。",
+      commentHeading: "意见",
+      commentPlaceholder: "描述要改的地方",
+      resultHeading: "工具返回（模型看到的）",
+      keyEsc: "取消",
+      keyEnter: "提交",
+      keyArrows: "切换候选元素",
+      cancel: "取消",
+      submit: "提交意见",
+      cancelTitle: "已取消本次评审",
+      cancelBody: "取消不等于认可，也不等于拒绝。工具会返回 cancelled 且不带任何意见。接下来要怎么走？",
+      cancelSkip: "跳过这一步",
+      cancelNever: "本轮不再询问",
+      cancelReopen: "重新打开面板",
+      legend1: "取消已返回 cancelled，且没有被解释成认可或拒绝。",
+      legend2: "选型答案以 choice 结构化返回，不再依赖中文自由文本。",
+      modeCapture: "评审模式 · capture",
+      modeVariant: "选型模式 · variant",
+      pick: "点选元素（推荐）",
+      drag: "拖动框选（现状）",
+      noSelection: "未选择任何区域",
+      picked: "已选中",
+      degraded: "degraded",
+      ready: "ready",
+      question: "两个版本选哪个？",
+      optB1Label: "B1 紧凑版",
+      optB1Desc: "信息密度高 · 按钮右对齐 · 无阴影",
+      optB2Label: "B2 宽松版",
+      optB2Desc: "留白更大 · 主按钮全宽 · 卡片有阴影",
+      optBoth: "两版都还要改",
+      optBothDesc: "需要第三轮迭代",
+      side: "左侧",
+      sideRight: "右侧",
+      submitVariant: "提交选择",
+      dragHint: "在截图上按住并拖动，画出矩形",
+    },
+    en: {
+      reviewNote: "Prototype · top switches change palette / theme / language; window switches compare drag-select vs element-pick",
+      panelTitleCapture: "Visual feedback",
+      panelTitleVariant: "Version selection",
+      questionHeading: "What we need from you",
+      questionNote: "With options, region and comment become optional: one click yields a structured answer instead of free text the model must parse.",
+      candidateHeading: "Candidate elements (keyboard ↑↓)",
+      regionHeading: "Feedback region",
+      regionHint: "Filled from the element in pick mode (read-only); editable in drag mode.",
+      commentHeading: "Comment",
+      commentPlaceholder: "Describe what should change",
+      resultHeading: "Tool result (what the model sees)",
+      keyEsc: "cancel",
+      keyEnter: "submit",
+      keyArrows: "move between candidates",
+      cancel: "Cancel",
+      submit: "Submit feedback",
+      cancelTitle: "This review was cancelled",
+      cancelBody: "Cancel is not approval and not rejection. The tool returns cancelled with no feedback. What next?",
+      cancelSkip: "Skip this step",
+      cancelNever: "Don't ask again this round",
+      cancelReopen: "Reopen the panel",
+      legend1: "Cancel returns cancelled and is never read as approval or rejection.",
+      legend2: "A selection answer returns a structured choice instead of free text.",
+      modeCapture: "Review · capture",
+      modeVariant: "Selection · variant",
+      pick: "Pick element (recommended)",
+      drag: "Drag select (current)",
+      noSelection: "No region selected",
+      picked: "Selected",
+      degraded: "degraded",
+      ready: "ready",
+      question: "Which version do you want?",
+      optB1Label: "B1 Compact",
+      optB1Desc: "Denser rows · buttons right-aligned · no shadow",
+      optB2Label: "B2 Airy",
+      optB2Desc: "More whitespace · full-width primary · card shadow",
+      optBoth: "Neither, keep iterating",
+      optBothDesc: "Needs a third round",
+      side: "left",
+      sideRight: "right",
+      submitVariant: "Submit choice",
+      dragHint: "Press and drag on the screenshot to draw a rectangle",
+    },
+  };
+
+  const state = {
+    lang: "zh",
+    mode: "capture",      // capture | variant
+    interaction: "pick",  // pick | drag
+    selection: null,      // {x,y,width,height,selector,role,text,side}
+    choice: null,
+    hover: null,
+    zoom: 1,
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const t = (key) => I18N[state.lang][key] ?? key;
+
+  // Build nodes instead of parsing markup strings: the artifact should model what the
+  // real panel has to do with caller-provided text, and it keeps the file free of
+  // markup strings parsed at runtime.
+  const make = (tag, className, text) => {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    if (text !== undefined) element.textContent = text;
+    return element;
+  };
+
+  // ---------- 渲染截图舞台 ----------
+  function buildShot(variant, side) {
+    const node = $("mockTpl").content.firstElementChild.cloneNode(true);
+    if (variant) node.classList.add(`v-${variant}`);
+    const shot = document.createElement("div");
+    shot.className = "shot pick";
+    shot.dataset.side = side ?? "";
+    const frame = document.createElement("div");
+    frame.className = "frame";
+    const overlay = document.createElement("div");
+    overlay.className = "overlay";
+    frame.append(node, overlay);
+    shot.append(frame);
+    // overlay 与 mock 严格重合，所以框选坐标 = 这张图自身的像素坐标
+    shot._mock = node;
+    shot._frame = frame;
+    shot._overlay = overlay;
+    return shot;
+  }
+
+  function render() {
+    const stage = $("stage");
+    stage.textContent = "";
+    stage.classList.toggle("compare", state.mode === "variant");
+    $("questionBlock").hidden = state.mode !== "variant";
+    $("panelTitle").textContent = state.mode === "variant" ? t("panelTitleVariant") : t("panelTitleCapture");
+    $("modeChip").textContent = state.mode === "variant" ? t("modeVariant") : t("modeCapture");
+    $("pickChip").textContent = state.interaction === "pick" ? t("pick") : t("drag");
+    $("btnSubmit").textContent = state.mode === "variant" ? t("submitVariant") : t("submit");
+    $("identity").textContent = state.mode === "variant"
+      ? "comparison-… · labels [B1 紧凑, B2 宽松]"
+      : "capture-… · stateLabel \"card default\"";
+    $("pageMeta").textContent = state.mode === "variant"
+      ? "http://127.0.0.1:8123/card?v=b1  ↔  ?v=b2"
+      : "http://127.0.0.1:8123/card?v=v1";
+    $("statusChip").textContent = state.mode === "variant" ? t("degraded") : t("ready");
+    $("statusChip").dataset.tone = state.mode === "variant" ? "warn" : "";
+
+    if (state.mode === "capture") {
+      const fig = document.createElement("figure");
+      const cap = document.createElement("figcaption");
+      cap.append(make("b", null, state.lang === "zh" ? "当前截图" : "Current capture"), document.createTextNode(" · capture-mtwykegu-xyt6o98e"));
+      fig.append(cap, buildShot(null, "only"));
+      stage.append(fig);
+    } else {
+      stage.append(variantFigure("B1", "紧凑 · Compact", "compact", "left"));
+      stage.append(variantFigure("B2", "宽松 · Airy", "airy", "right"));
+    }
+    bindShots();
+    buildCandidates();
+    renderOptions();
+    paintSelection();
+    renderResult();
+  }
+
+  function variantFigure(key, sub, variant, side) {
+    const fig = document.createElement("figure");
+    const cap = document.createElement("figcaption");
+    cap.append(make("b", null, key), document.createTextNode(" " + sub));
+    fig.append(cap, buildShot(variant, side));
+    return fig;
+  }
+
+  // ---------- 交互：点选元素 / 拖动框选 ----------
+  let dragging = null;
+
+  function localRect(el, ref) {
+    const a = el.getBoundingClientRect();
+    const b = ref.getBoundingClientRect();
+    const s = state.zoom;
+    return {
+      x: Math.round((a.left - b.left) / s),
+      y: Math.round((a.top - b.top) / s),
+      width: Math.round(a.width / s),
+      height: Math.round(a.height / s),
+    };
+  }
+
+  function bindShots() {
+    for (const shot of document.querySelectorAll(".shot")) {
+      shot.classList.toggle("pick", state.interaction === "pick");
+      shot.addEventListener("pointermove", (event) => {
+        if (state.interaction !== "pick") return;
+        const el = event.target.closest("[data-sel]");
+        // 只接受属于本 shot 的元素
+        if (!el || !shot._frame.contains(el)) { state.hover = null; paintHover(); return; }
+        state.hover = { ...localRect(el, shot._frame), el, side: shot.dataset.side };
+        paintHover();
+      });
+      shot.addEventListener("pointerleave", () => { state.hover = null; paintHover(); });
+      shot.addEventListener("click", (event) => {
+        if (state.interaction !== "pick") return;
+        const el = event.target.closest("[data-sel]");
+        if (!el || !shot._frame.contains(el)) return;
+        const rect = localRect(el, shot._frame);
+        state.selection = {
+          ...rect,
+          selector: el.dataset.sel,
+          role: el.dataset.role,
+          text: el.dataset.text,
+          side: shot.dataset.side,
+        };
+        paintSelection();
+        renderCandidates();
+        renderResult();
+      });
+      shot.addEventListener("pointerdown", (event) => {
+        if (state.interaction !== "drag") return;
+        event.preventDefault();
+        const box = document.createElement("div");
+        box.className = "hot";
+        shot._overlay.append(box);
+        dragging = { shot, box, start: { x: event.clientX, y: event.clientY } };
+      });
+      shot.addEventListener("pointermove", (event) => {
+        if (!dragging || dragging.shot !== shot) return;
+        const s = state.zoom;
+        const b = shot._frame.getBoundingClientRect();
+        const x = Math.min(dragging.start.x, event.clientX) - b.left;
+        const y = Math.min(dragging.start.y, event.clientY) - b.top;
+        const w = Math.abs(event.clientX - dragging.start.x);
+        const h = Math.abs(event.clientY - dragging.start.y);
+        Object.assign(dragging.box.style, {
+          left: (x / s) + "px", top: (y / s) + "px",
+          width: (w / s) + "px", height: (h / s) + "px", display: "block",
+        });
+        dragging.rect = { x: Math.round(x / s), y: Math.round(y / s), width: Math.round(w / s), height: Math.round(h / s) };
+      });
+      shot.addEventListener("pointerup", () => {
+        if (!dragging || dragging.shot !== shot) return;
+        const rect = dragging.rect;
+        dragging.box.remove();
+        dragging = null;
+        if (!rect || rect.width < 2 || rect.height < 2) return;
+        // 拖动模式没有元素身份 —— 这正是现状的问题
+        state.selection = { ...rect, selector: null, role: null, text: null, side: shot.dataset.side };
+        paintSelection();
+        renderCandidates();
+        renderResult();
+      });
+    }
+  }
+
+  function paintHover() {
+    for (const shot of document.querySelectorAll(".shot")) {
+      for (const node of shot._overlay.querySelectorAll(".hot,.hot-label")) node.remove();
+      if (!state.hover || state.hover.el === undefined || !shot._frame.contains(state.hover.el)) continue;
+      const box = document.createElement("div");
+      box.className = "hot";
+      Object.assign(box.style, boxStyle(state.hover));
+      const label = document.createElement("div");
+      label.className = "hot-label";
+      label.textContent = state.hover.el.dataset.sel + "  ·  " + state.hover.el.dataset.role;
+      label.style.left = state.hover.x + "px";
+      label.style.top = Math.max(0, state.hover.y - 22) + "px";
+      shot._overlay.append(box, label);
+    }
+  }
+
+  function paintSelection() {
+    for (const shot of document.querySelectorAll(".shot")) {
+      for (const node of shot._overlay.querySelectorAll(".hot-selected")) node.remove();
+      const sel = state.selection;
+      if (!sel) continue;
+      // 只有 capture 模式（单图）或选中同一侧（compare 模式）时画框
+      if (state.mode === "variant" && sel.side && shot.dataset.side !== sel.side) continue;
+      const box = document.createElement("div");
+      box.className = "hot-selected";
+      Object.assign(box.style, boxStyle(sel));
+      shot._overlay.append(box);
+    }
+    const sel = state.selection;
+    $("rx").value = sel ? sel.x : 0;
+    $("ry").value = sel ? sel.y : 0;
+    $("rw").value = sel ? sel.width : 1;
+    $("rh").value = sel ? sel.height : 1;
+    for (const input of document.querySelectorAll(".grid4 input")) input.readOnly = state.interaction === "pick";
+  }
+
+  function boxStyle(rect) {
+    return { left: rect.x + "px", top: rect.y + "px", width: rect.width + "px", height: rect.height + "px" };
+  }
+
+  // ---------- 候选元素列表（键盘可达路径） ----------
+  function activeShot() {
+    if (state.mode === "capture") return document.querySelector(".shot");
+    const side = state.selection?.side;
+    return document.querySelector(`.shot[data-side="${side ?? "left"}"]`);
+  }
+
+  function buildCandidates() {
+    const list = $("candidates");
+    list.textContent = "";
+    list._items = [];
+    const shot = activeShot();
+    if (!shot) return;
+    for (const el of shot._mock.querySelectorAll("[data-sel]")) {
+      const rect = localRect(el, shot._frame);
+      list._items.push({ el, rect, side: shot.dataset.side });
+    }
+    renderCandidates();
+  }
+
+  function renderCandidates() {
+    const list = $("candidates");
+    list.textContent = "";
+    for (const [index, item] of (list._items ?? []).entries()) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "cand";
+      button.setAttribute("role", "option");
+      const current = state.selection?.selector === item.el.dataset.sel && state.selection?.side === item.side;
+      button.setAttribute("aria-current", String(current));
+      const holder = make("span");
+      holder.append(make("span", "sel"), make("span", "txt"));
+      button.append(make("span", "idx", String(index + 1)), holder);
+      button.querySelector(".sel").textContent = item.el.dataset.sel;
+      button.querySelector(".txt").textContent = item.el.dataset.role + " · " + item.el.dataset.text;
+      button.addEventListener("click", () => {
+        state.selection = {
+          ...item.rect,
+          selector: item.el.dataset.sel,
+          role: item.el.dataset.role,
+          text: item.el.dataset.text,
+          side: item.side,
+        };
+        paintSelection();
+        renderCandidates();
+        renderResult();
+      });
+      list.append(button);
+    }
+  }
+
+  // ---------- 选项（结构化提问） ----------
+  function renderOptions() {
+    const box = $("options");
+    box.textContent = "";
+    $("questionText").textContent = t("question");
+    if (state.mode !== "variant") return;
+    const options = [
+      { key: "B1", label: t("optB1Label"), desc: t("optB1Desc") },
+      { key: "B2", label: t("optB2Label"), desc: t("optB2Desc") },
+      { key: "neither", label: t("optBoth"), desc: t("optBothDesc") },
+    ];
+    for (const option of options) {
+      const row = document.createElement("div");
+      row.className = "option";
+      row.setAttribute("role", "radio");
+      row.tabIndex = 0;
+      row.setAttribute("aria-checked", String(state.choice === option.key));
+      const holder = make("span");
+      holder.append(make("span", "l"), make("span", "d"));
+      row.append(make("span", "k", option.key), holder);
+      row.querySelector(".l").textContent = option.label;
+      row.querySelector(".d").textContent = option.desc;
+      const choose = () => { state.choice = option.key; renderOptions(); renderResult(); };
+      row.addEventListener("click", choose);
+      row.addEventListener("keydown", (event) => { if (event.key === " " || event.key === "Enter") { event.preventDefault(); choose(); } });
+      box.append(row);
+    }
+  }
+
+  // ---------- 工具返回体 ----------
+  function result() {
+    if (state.mode === "variant") {
+      return {
+        comparisonId: "comparison-mtwymvlr-gdf1h57a",
+        mode: "variant",
+        question: t("question"),
+        options: ["B1", "B2", "neither"],
+        status: state.choice ? "chosen" : "pending",
+        ...(state.choice ? { choice: state.choice } : {}),
+        ...(state.selection ? {
+          region: { x: state.selection.x, y: state.selection.y, width: state.selection.width, height: state.selection.height },
+          side: state.selection.side,
+        } : {}),
+        ...(commentValue() ? { comment: commentValue() } : {}),
+      };
+    }
+    return {
+      captureId: "capture-mtwykegu-xyt6o98e",
+      status: state.selection ? "submitted" : "pending",
+      ...(state.selection ? {
+        region: { x: state.selection.x, y: state.selection.y, width: state.selection.width, height: state.selection.height },
+        // 新增：点选的元素身份，让模型拿到“是哪个按钮”，而不是裸坐标
+        ...(state.selection.selector ? {
+          target: { selector: state.selection.selector, role: state.selection.role, text: state.selection.text },
+        } : {}),
+      } : {}),
+      ...(commentValue() ? { comment: commentValue() } : {}),
+    };
+  }
+
+  function commentValue() { return $("comment").value.trim(); }
+
+  function renderResult() {
+    $("result").textContent = JSON.stringify(result(), null, 2);
+  }
+
+  function cancelledResult(reopen, never) {
+    return { status: "cancelled", reopenRequested: reopen, suppressForRound: never };
+  }
+
+  // ---------- 取消流程 ----------
+  const scrim = $("scrim");
+  function openCancel() {
+    $("dlgReopen").textContent = t("cancelReopen");
+    $("dlgSkip").textContent = t("cancelSkip");
+    $("dlgNever").textContent = t("cancelNever");
+    $("dlgTitle").textContent = t("cancelTitle");
+    document.querySelector("#scrim p").textContent = t("cancelBody");
+    scrim.hidden = false;
+    $("dlgReopen").focus();
+  }
+  function closeCancel() { scrim.hidden = true; }
+  function cancelWith(reopen, never) {
+    closeCancel();
+    $("result").textContent = JSON.stringify(cancelledResult(reopen, never), null, 2);
+    if (reopen) {
+      state.selection = null;
+      state.choice = null;
+      $("comment").value = "";
+      render();
+    }
+  }
+  $("dlgReopen").addEventListener("click", () => cancelWith(true, false));
+  $("dlgSkip").addEventListener("click", () => cancelWith(false, false));
+  $("dlgNever").addEventListener("click", () => cancelWith(false, true));
+  scrim.addEventListener("click", (event) => { if (event.target === scrim) closeCancel(); });
+
+  // ---------- 键盘 ----------
+  document.addEventListener("keydown", (event) => {
+    if (!scrim.hidden) {
+      if (event.key === "Escape") { event.preventDefault(); closeCancel(); }
+      return;
+    }
+    if (event.key === "Escape") { event.preventDefault(); openCancel(); return; }
+    if (event.key === "Enter" && event.target.tagName !== "TEXTAREA") { event.preventDefault(); submit(); return; }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      const buttons = [...$("candidates").querySelectorAll(".cand")];
+      if (!buttons.length) return;
+      event.preventDefault();
+      const index = buttons.findIndex((b) => b.getAttribute("aria-current") === "true");
+      const next = event.key === "ArrowDown"
+        ? buttons[Math.min(buttons.length - 1, index + 1)]
+        : buttons[Math.max(0, index - 1)];
+      next.click();
+      next.focus();
+    }
+  });
+
+  function submit() {
+    if (state.mode === "variant") {
+      if (!state.choice && !state.selection) {
+        $("result").textContent = JSON.stringify({ error: "choose an option or pick a region first" }, null, 2);
+        return;
+      }
+      renderResult();
+      return;
+    }
+    if (!state.selection) {
+      $("result").textContent = JSON.stringify({ error: "no region selected" }, null, 2);
+      return;
+    }
+    if (!commentValue()) {
+      $("result").textContent = JSON.stringify({ error: "comment must not be blank" }, null, 2);
+      $("comment").focus();
+      return;
+    }
+    renderResult();
+  }
+  $("btnSubmit").addEventListener("click", submit);
+  $("btnCancel").addEventListener("click", openCancel);
+  $("comment").addEventListener("input", renderResult);
+
+  // ---------- 顶部审核工具条 ----------
+  function applyLang() {
+    for (const node of document.querySelectorAll("[data-i18n]")) node.textContent = t(node.dataset.i18n);
+    for (const node of document.querySelectorAll("[data-i18n-placeholder]")) node.placeholder = t(node.dataset.i18nPlaceholder);
+    render();
+  }
+
+  document.querySelectorAll("[data-palette]").forEach((button) => {
+    button.addEventListener("click", () => {
+      for (const b of document.querySelectorAll("[data-palette]")) b.setAttribute("aria-pressed", String(b === button));
+      document.body.classList.toggle("palette-a", button.dataset.palette === "a");
+      document.body.classList.toggle("palette-b", button.dataset.palette === "b");
+    });
+  });
+  document.querySelectorAll("[data-scheme]").forEach((button) => {
+    button.addEventListener("click", () => {
+      for (const b of document.querySelectorAll("[data-scheme]")) b.setAttribute("aria-pressed", String(b === button));
+      document.body.classList.toggle("dark", button.dataset.scheme === "dark");
+    });
+  });
+  document.querySelectorAll("[data-lang]").forEach((button) => {
+    button.addEventListener("click", () => {
+      for (const b of document.querySelectorAll("[data-lang]")) b.setAttribute("aria-pressed", String(b === button));
+      state.lang = button.dataset.lang;
+      applyLang();
+    });
+  });
+  document.querySelectorAll("[data-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      for (const b of document.querySelectorAll("[data-mode]")) b.setAttribute("aria-pressed", String(b === button));
+      state.mode = button.dataset.mode;
+      state.selection = null;
+      render();
+    });
+  });
+
+  $("zoomIn").addEventListener("click", () => { state.zoom = Math.min(1.5, state.zoom + 0.1); applyZoom(); });
+  $("zoomOut").addEventListener("click", () => { state.zoom = Math.max(0.8, state.zoom - 0.1); applyZoom(); });
+  $("zoomReset").addEventListener("click", () => { state.zoom = 1; applyZoom(); });
+  function applyZoom() {
+    for (const shot of document.querySelectorAll(".shot")) shot.style.zoom = String(state.zoom);
+    buildCandidates();
+    paintSelection();
+    paintHover();
+  }
+
+  // 面板模式开关放在 footer 上方（原型专用，最终由调用方参数决定）
+  const modes = document.createElement("div");
+  modes.className = "seg";
+  modes.style.margin = "0 0 0 0";
+  modes.setAttribute("role", "group");
+  modes.setAttribute("aria-label", "Panel mode");
+  for (const [value, label, pressed] of [
+    ["capture", "评审 · capture", "true"],
+    ["variant", "选型 · variant", "false"],
+  ]) {
+    const button = make("button", null, label);
+    button.type = "button";
+    button.dataset.mode = value;
+    button.setAttribute("aria-pressed", pressed);
+    modes.append(button);
+  }
+  document.querySelector(".review-bar").insertBefore(modes, document.querySelector(".review-bar .spacer"));
+
+  const interact = document.createElement("div");
+  interact.className = "seg";
+  interact.setAttribute("role", "group");
+  interact.setAttribute("aria-label", "Interaction");
+  for (const [value, label, pressed] of [
+    ["pick", "点选元素", "true"],
+    ["drag", "拖动框选", "false"],
+  ]) {
+    const button = make("button", null, label);
+    button.type = "button";
+    button.dataset.interact = value;
+    button.setAttribute("aria-pressed", pressed);
+    interact.append(button);
+  }
+  document.querySelector(".review-bar").insertBefore(interact, document.querySelector(".review-bar .spacer"));
+  document.querySelectorAll("[data-interact]").forEach((button) => {
+    button.addEventListener("click", () => {
+      for (const b of document.querySelectorAll("[data-interact]")) b.setAttribute("aria-pressed", String(b === button));
+      state.interaction = button.dataset.interact;
+      state.selection = null;
+      for (const shot of document.querySelectorAll(".shot")) shot.classList.toggle("pick", state.interaction === "pick");
+      paintSelection();
+      renderResult();
+    });
+  });
+  // 上面的 modes 用同一套 data-mode 绑定，需在插入后重新绑定
+  document.querySelectorAll("[data-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      for (const b of document.querySelectorAll("[data-mode]")) b.setAttribute("aria-pressed", String(b === button));
+      state.mode = button.dataset.mode;
+      state.selection = null;
+      render();
+    });
+  });
+
+  applyLang();
+})();
+</script>
+</body>
+</html>
