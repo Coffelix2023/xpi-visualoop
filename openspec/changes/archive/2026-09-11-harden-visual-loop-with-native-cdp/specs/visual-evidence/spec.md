@@ -56,6 +56,7 @@
 ### Requirement: Bounded and trusted data handling
 
 系统 SHALL 限制图像像素和字节数、结构化输出、文本、诊断条数、子进程输出及执行时间。**evidenceDiskBudget**(临时文件磁盘预算)SHALL 限制单次采集的图像字节数上限为 4 MiB,单个会话的累计磁盘占用上限为 100 MiB。**modelPayloadBudget**(注入模型的上下文预算)SHALL 限制单次采集返回的结构化文本上限为 16 KiB。项目配置 SHALL 仅在项目受信任时生效。页面文本、选择器、端点响应和外部工具输出 MUST 按不可信数据验证;不允许它们变成任意脚本、命令或输出文件路径。系统 SHALL 不默认收集认证头、Cookie、完整请求正文或完整页面源码,且不自动开启录制。系统 SHALL 同样限制复核返回的结构化结果与图像总量,MUST 不因一次调用而超出 modelPayloadBudget 与 evidenceDiskBudget 设定的预算。
+
 #### Scenario: Untrusted project configuration
 
 - **WHEN** 未受信任的项目提供后端路径、端点或采集配置
