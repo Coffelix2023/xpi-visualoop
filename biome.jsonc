@@ -215,6 +215,20 @@
         "**/components.json",
         "**/package.json"
       ]
+    },
+    {
+      "includes": [
+        "src/visual-loop/feedback.ts"
+      ],
+      /// The panel copy table is prose, not a credential surface, and the entropy
+      /// heuristic reads short CJK strings as high-entropy secrets.
+      "linter": {
+        "rules": {
+          "security": {
+            "noSecrets": "off"
+          }
+        }
+      }
     }
   ],
 

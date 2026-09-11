@@ -68,7 +68,6 @@ export const PANEL_COPY: Record<PanelLanguage, Record<string, string>> = {
     errorCoordinates: "坐标必须是有限数值。",
     errorFix: "请修正后再提交。",
     errorInside: "区域必须留在截图范围内。",
-    // biome-ignore lint/security/noSecrets: CJK copy, not a credential.
     errorPick: "请选择一项。",
     errorPositive: "区域必须有正的面积。",
     feedbackTarget: "反馈目标",
