@@ -118,12 +118,12 @@ describe("VisualLoopManager.compare", () => {
     expect(result.comparison).toMatchObject({
       afterCaptureId: right.captureId,
       beforeCaptureId: left.captureId,
+      mode: "variant",
+      status: "comparable",
       labels: [
         "B1 紧凑",
         "B2 宽松",
       ],
-      mode: "variant",
-      status: "comparable",
     });
     expect(result.comparison.reasons).toContain("page URL changed");
   });
