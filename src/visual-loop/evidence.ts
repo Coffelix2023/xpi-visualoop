@@ -44,7 +44,21 @@ export interface DiagnosticSummary {
   truncated: boolean;
 }
 
+/**
+ * A picker box: one element a person could point at, sampled with the capture. The
+ * selector is a short handle for discussion, not a verified unique match.
+ */
+export interface CaptureCandidate {
+  bounds: Region;
+  documentBounds: Region;
+  role: string;
+  selector: string;
+  text: string;
+  visibleBounds: Region;
+}
+
 export interface Capture {
+  candidates: CaptureCandidate[];
   captureId: string;
   diagnostics: {
     console: DiagnosticSummary;
@@ -615,6 +629,13 @@ export function validateComparison(value: unknown): Comparison {
 }
 
 function freezeCapture(value: Capture): Capture {
+  for (const candidate of value.candidates) {
+    Object.freeze(candidate.bounds);
+    Object.freeze(candidate.documentBounds);
+    Object.freeze(candidate.visibleBounds);
+    Object.freeze(candidate);
+  }
+  Object.freeze(value.candidates);
   Object.freeze(value.diagnostics);
   Object.freeze(value.diagnostics.console.entries);
   Object.freeze(value.diagnostics.network.entries);

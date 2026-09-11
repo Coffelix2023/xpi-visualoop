@@ -6,6 +6,7 @@ import { CdpClient } from "../src/visual-loop/cdp.ts";
 import {
   captureOwnedPage,
   closeOwnedTarget,
+  MAX_CANDIDATES,
   type OwnedTargets,
   OwnedTargets as OwnedTargetsClass,
   openOwnedTarget,
@@ -466,6 +467,37 @@ describe("owned page capture", () => {
               readyState: "complete",
             },
           );
+        if (expression.includes('querySelectorAll("*")'))
+          return value(
+            Array.from(
+              {
+                length: MAX_CANDIDATES + 5,
+              },
+              (_, index) => ({
+                role: "button",
+                selector: index === 0 ? "#target" : `#pick-${index}`,
+                text: "Target",
+                bounds: {
+                  height: 40,
+                  width: 100,
+                  x: 20,
+                  y: 30 + index,
+                },
+                documentBounds: {
+                  height: 40,
+                  width: 100,
+                  x: 20,
+                  y: 30 + index,
+                },
+                visibleBounds: {
+                  height: 40,
+                  width: 100,
+                  x: 20,
+                  y: 30 + index,
+                },
+              }),
+            ),
+          );
         if (expression.includes("document.title")) {
           pageReads += 1;
           const url = options.pageAfter?.url ?? "http://127.0.0.1:8765/";
@@ -556,6 +588,13 @@ describe("owned page capture", () => {
       rawHeight: 600,
       rawWidth: 800,
       width: 800,
+    });
+    // The page handed over more boxes than the cap allows.
+    expect(result.candidates).toHaveLength(MAX_CANDIDATES);
+    expect(result.candidates[0]).toMatchObject({
+      role: "button",
+      selector: "#target",
+      text: "Target",
     });
     expect(result.image.path).toBe(imagePath);
     expect(await readFile(imagePath)).toEqual(PNG);

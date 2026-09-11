@@ -426,6 +426,7 @@ export class VisualLoopManager {
           },
         },
         page,
+        candidates: result.candidates,
         readiness:
           result.pageBefore.url === preparedPage.url
             ? result.readiness

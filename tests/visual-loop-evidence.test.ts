@@ -30,6 +30,7 @@ afterEach(async () => {
 
 function capture(imagePath: string, overrides: Partial<Capture> = {}): Capture {
   return {
+    candidates: [],
     captureId: "capture-test",
     dpr: 1,
     endedAt: "2026-09-09T00:00:01.000Z",

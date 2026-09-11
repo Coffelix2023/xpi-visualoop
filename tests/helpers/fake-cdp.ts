@@ -419,6 +419,33 @@ export async function fakePage(
         w: size.width,
       };
     }
+    // The picker script is the only evaluation that enumerates every element.
+    if (expression.includes('querySelectorAll("*")'))
+      return [
+        {
+          role: "button",
+          selector: "#target",
+          text: "Target",
+          bounds: {
+            height: 40,
+            width: 100,
+            x: 20,
+            y: 30,
+          },
+          documentBounds: {
+            height: 40,
+            width: 100,
+            x: 20,
+            y: 30,
+          },
+          visibleBounds: {
+            height: 40,
+            width: 100,
+            x: 20,
+            y: 30,
+          },
+        },
+      ];
     if (expression.includes("getComputedStyle")) {
       targetReads += 1;
       if (

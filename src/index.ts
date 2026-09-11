@@ -234,7 +234,13 @@ const MAX_CAPTURE_TEXT = 16 * 1024;
 export async function captureContent(
   capture: Awaited<ReturnType<VisualLoopManager["capture"]>>,
 ) {
-  const text = JSON.stringify(capture);
+  // Picker candidates are a panel aid. Sending them to the model would spend most of
+  // the 16 KiB text budget on boxes it did not ask for, so they stay out of this text
+  // while the capture itself still carries them for the panel.
+  const text = JSON.stringify({
+    ...capture,
+    candidates: undefined,
+  });
   if (Buffer.byteLength(text, "utf8") > MAX_CAPTURE_TEXT)
     throw new Error("visual capture result exceeded the text budget");
   const data = (await readFile(capture.image.path)).toString("base64");

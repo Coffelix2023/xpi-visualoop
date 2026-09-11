@@ -95,6 +95,60 @@ describe("visual feedback evidence binding", () => {
     } as unknown as Capture;
     expect(feedbackPanelInput(capture).imagePath).toBe(capture.image.path);
   });
+
+  it("hands the picker candidates through to the panel unchanged", () => {
+    const candidates = [
+      "#pick-0",
+      "#pick-1",
+      "#pick-2",
+    ].map((selector, index) => ({
+      role: "button",
+      bounds: {
+        height: 40,
+        width: 100,
+        x: 20,
+        y: 30 + index,
+      },
+      documentBounds: {
+        height: 40,
+        width: 100,
+        x: 20,
+        y: 30 + index,
+      },
+      selector,
+      text: "Target",
+      visibleBounds: {
+        height: 40,
+        width: 100,
+        x: 20,
+        y: 30 + index,
+      },
+    }));
+    const capture = {
+      candidates,
+      captureId: "capture-candidates",
+      startedAt: "2026-09-09T00:00:00.000Z",
+      image: {
+        height: 10,
+        path: "/tmp/capture-candidates.png",
+        width: 10,
+      },
+      page: {
+        title: "Candidates",
+        url: "http://127.0.0.1:8765/",
+      },
+      readiness: {
+        reasons: [],
+        status: "ready" as const,
+      },
+    } as unknown as Capture;
+
+    const input = feedbackPanelInput(capture);
+    // The cap belongs to the CDP layer; this one only has to lose nothing.
+    expect(input.candidates).toBe(candidates);
+    expect(input.candidates).toHaveLength(3);
+    expect(input.candidates?.[0]?.selector).toBe("#pick-0");
+  });
 });
 
 describe("visual feedback coordinates", () => {

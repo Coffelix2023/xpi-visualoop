@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { Capture, Comparison, Region } from "./evidence.ts";
+import type { Capture, CaptureCandidate, Comparison, Region } from "./evidence.ts";
 
 export interface FeedbackImage {
   height: number;
@@ -25,6 +25,7 @@ export interface FeedbackComparisonInput {
   status: Comparison["status"];
 }
 export interface FeedbackPanelInput {
+  candidates?: CaptureCandidate[];
   capturedAt: string;
   captureId: string;
   comparison?: FeedbackComparisonInput;
@@ -41,6 +42,7 @@ export interface FeedbackPanelInput {
 
 export function feedbackPanelInput(capture: Capture): FeedbackPanelInput {
   return {
+    candidates: capture.candidates,
     capturedAt: capture.startedAt,
     captureId: capture.captureId,
     image: capture.image,

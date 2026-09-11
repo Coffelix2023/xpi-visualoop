@@ -47,6 +47,8 @@ export interface CdpPrepareResult {
 }
 
 export interface CdpCaptureResult {
+  /** Picker candidates sampled with the same shot; bounded by MAX_CANDIDATES. */
+  candidates: CdpCandidate[];
   diagnostics: CdpDiagnosticsResult;
   dpr: number;
   endedAt: string;
@@ -248,6 +250,131 @@ function targetScript(selector: string): string {
   for (const key of ["display", "position", "width", "height", "margin", "padding", "gap", "fontFamily", "fontSize", "fontWeight", "lineHeight", "color", "backgroundColor", "border", "borderRadius", "overflow"]) styles[key] = computed[key];
   return {accessibility: {role: element.getAttribute("role") || "", label: element.getAttribute("aria-label") || "", description: element.getAttribute("aria-description") || ""}, bounds: {x: rect.left, y: rect.top, width: rect.width, height: rect.height}, documentBounds: {x: rect.left + scrollX, y: rect.top + scrollY, width: rect.width, height: rect.height}, selector, text: (element.innerText || element.textContent || "").slice(0, 2000), styles, visibleBounds: {x, y, width: right - x, height: bottom - y}};
 })()`;
+}
+
+/**
+ * Picker candidates for the review panel: one box per element a person could
+ * plausibly point at. The cap is a hard bound rather than a hint, because every
+ * candidate travels into a WebView and the model's own payload must stay bounded.
+ */
+export const MAX_CANDIDATES = 60;
+/** Anything smaller than this is not something a person aims at. */
+const MIN_CANDIDATE_EDGE = 8;
+
+/**
+ * Role by tag, used when the page declares no ARIA role. Most pages carry no ARIA
+ * at all, and a picker entry with an empty role is useless to whoever reads it.
+ */
+const CANDIDATE_ROLES: Record<string, string> = {
+  a: "link",
+  article: "article",
+  aside: "complementary",
+  button: "button",
+  dialog: "dialog",
+  fieldset: "group",
+  figure: "figure",
+  footer: "contentinfo",
+  form: "form",
+  h1: "heading",
+  h2: "heading",
+  h3: "heading",
+  h4: "heading",
+  h5: "heading",
+  h6: "heading",
+  header: "banner",
+  img: "img",
+  input: "textbox",
+  label: "label",
+  li: "listitem",
+  main: "main",
+  nav: "navigation",
+  ol: "list",
+  p: "paragraph",
+  section: "region",
+  select: "combobox",
+  summary: "button",
+  table: "table",
+  td: "cell",
+  textarea: "textbox",
+  th: "columnheader",
+  tr: "row",
+  ul: "list",
+};
+
+export interface CdpCandidate {
+  bounds: CdpRegion;
+  documentBounds: CdpRegion;
+  role: string;
+  /** A short handle for discussion; unlike a caller selector it may not be unique. */
+  selector: string;
+  text: string;
+  visibleBounds: CdpRegion;
+}
+
+/**
+ * The candidate selector names an element well enough to talk about. It is not the
+ * caller-supplied selector path: that one is verified to match exactly one element,
+ * while this one is generated and may match several.
+ */
+export function candidatesScript(): string {
+  return `(() => {
+  const MAX = ${MAX_CANDIDATES}, MIN_EDGE = ${MIN_CANDIDATE_EDGE};
+  const ROLES = ${JSON.stringify(CANDIDATE_ROLES)};
+  const handle = (element, tag) => {
+    const id = element.id;
+    if (typeof id === "string" && /^[A-Za-z][A-Za-z0-9_-]*$/.test(id)) return "#" + id;
+    const testId = element.getAttribute("data-testid") || element.getAttribute("data-test");
+    if (typeof testId === "string" && testId.length > 0) return tag + '[data-testid="' + testId + '"]';
+    const raw = typeof element.className === "string" ? element.className : "";
+    const first = raw.trim().split(/\\s+/).filter(Boolean)[0];
+    return first ? tag + "." + first : tag;
+  };
+  const out = [];
+  const nodes = document.querySelectorAll("*");
+  for (let index = 0; index < nodes.length && out.length < MAX; index += 1) {
+    const element = nodes[index];
+    const rect = element.getBoundingClientRect();
+    if (rect.width < MIN_EDGE || rect.height < MIN_EDGE) continue;
+    const style = getComputedStyle(element);
+    if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") continue;
+    const x = Math.max(0, rect.left), y = Math.max(0, rect.top);
+    const right = Math.min(innerWidth, rect.right), bottom = Math.min(innerHeight, rect.bottom);
+    if (right <= x || bottom <= y) continue;
+    const tag = element.tagName.toLowerCase();
+    const declared = element.getAttribute("role");
+    out.push({
+      bounds: {height: rect.height, width: rect.width, x: rect.left, y: rect.top},
+      documentBounds: {height: rect.height, width: rect.width, x: rect.left + scrollX, y: rect.top + scrollY},
+      role: declared ? declared : ROLES[tag] || tag,
+      selector: handle(element, tag),
+      text: (element.innerText || element.textContent || "").trim().slice(0, 120),
+      visibleBounds: {height: bottom - y, width: right - x, x: x, y: y},
+    });
+  }
+  return out;
+})()`;
+}
+
+async function resolveCandidates(
+  client: CdpClient,
+  sessionId: string,
+): Promise<CdpCandidate[]> {
+  const value = await evaluate(client, sessionId, candidatesScript());
+  if (!Array.isArray(value)) throw new Error("candidate resolution is invalid");
+  return value.slice(0, MAX_CANDIDATES).map((item, index) => {
+    if (!isRecord(item)) throw new Error(`candidates[${index}] is invalid`);
+    return {
+      bounds: region(item.bounds, `candidates[${index}].bounds`),
+      documentBounds: region(
+        item.documentBounds,
+        `candidates[${index}].documentBounds`,
+      ),
+      role: text(item.role, `candidates[${index}].role`),
+      selector: text(item.selector, `candidates[${index}].selector`),
+      text: typeof item.text === "string" ? item.text : "",
+      visibleBounds: region(item.visibleBounds, `candidates[${index}].visibleBounds`),
+    };
+  });
 }
 
 function boundsScript(selector: string): string {
@@ -561,6 +688,9 @@ export async function captureOwnedPage(
       target = resolved;
     }
   }
+  // Sampled with the target and the screenshot so the picker and the pixels describe
+  // the same moment.
+  const candidates = await resolveCandidates(client, sessionId);
   const shot = await captureImage(client, sessionId);
   const bytes = Buffer.from(shot.data, "base64");
   // A region capture must stay inside the shot's own clipping rectangle, so it
@@ -612,6 +742,7 @@ export async function captureOwnedPage(
   }
   const size = pngSize(bytes);
   return {
+    candidates,
     diagnostics,
     dpr,
     endedAt: new Date().toISOString(),
