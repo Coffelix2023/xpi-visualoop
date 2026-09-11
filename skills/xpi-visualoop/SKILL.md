@@ -1,12 +1,12 @@
 ---
 name: xpi-visualoop
-description: Look at the real rendered pixels of one local page and let the user point at a region of that image. Use when the user asks how a local page, panel, or component currently looks, when they want to review or mark up a render, or after you change frontend code that a local dev server renders — capture the page before you declare the change done. Skip it for pure logic or backend changes, for pages you cannot reach on loopback, and for producing diagrams or mockups.
+description: Look at the real rendered pixels of one local page and let the user point at a region of that image. Use when the user asks how a local page, panel, or component currently looks, when they want to review or mark up a render, when they want to choose between two rendered versions of the same local page, or after you change frontend code that a local dev server renders — capture the page before you declare the change done. Skip it for pure logic or backend changes, for pages you cannot reach on loopback, and for producing diagrams or mockups.
 license: MIT
 ---
 
 # xpi-visualoop
 
-Four read-only tools that hand the model real pixels of one local page, and hand
+Five read-only tools that hand the model real pixels of one local page, and hand
 the user a panel to point at a region of that image.
 
 ## The loop
@@ -51,12 +51,30 @@ Captures the same target again and returns `comparable` or `not-comparable`, plu
 independent diagnostics and target/style changes. Add `includeViewportImages: true`
 only when the common-region pair is not enough; the extra images cost budget.
 
+**5. `visual_compare` — choose between two rendered versions.**
+
+`{ "leftCaptureId": "...", "rightCaptureId": "...", "labels": ["B1 compact", "B2 airy"] }`
+
+Capture each version first, then compare the two captures you already have. Nothing
+is re-rendered and the page is left exactly as it was. Both sides come back as
+images captioned with your labels. A variant comparison is never refused for
+living at two different URLs — every difference between the versions is reported
+as information, because the two sides are meant to differ. `labels` is optional;
+without it the sides are called left and right.
+
+Use `visual_verify` when the question is "did my change do what I claimed". Use
+`visual_compare` when the question is "which of these two should I ship".
+
 ## Rules
 
 - **`stateLabel` is your declaration, not proof from the browser.** When the baseline
   declared one, `visual_verify` refuses a caller that stays silent: repeat the same
   label (state unchanged) or declare a new one (state changed). Skipping this makes a
   diff caused by opening a menu look like a diff caused by your code.
+- **A variant comparison is not a regression check.** `visual_compare` files every
+  difference between the two versions as information and never refuses the pair, so
+  its `reasons` are not failures. `not-comparable` only ever comes from
+  `visual_verify`.
 - **These tools never click, type, scroll, resize, or run page scripts.** If the next
   step needs an interaction, ask the user to perform it, then capture again.
 - **Budgets are fixed.** Longest edge at most 2000 device pixels, one tool result at
