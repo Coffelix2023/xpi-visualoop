@@ -6,7 +6,9 @@ import { Compile } from "typebox/compile";
 import { afterEach, describe, expect, it } from "vitest";
 import xpiVisualoop, {
   CaptureParameters,
+  CompareParameters,
   captureContent,
+  compareContent,
   FeedbackParameters,
   feedbackReference,
   MAX_VERIFY_IMAGE_BYTES,
@@ -123,6 +125,7 @@ describe("visual tool registration", () => {
       "visual_feedback",
       "visual_capture",
       "visual_verify",
+      "visual_compare",
     ]);
 
     const prepare = Compile(PrepareParameters);
@@ -202,6 +205,57 @@ describe("visual tool registration", () => {
       }),
     ).toBe(false);
 
+    const compare = Compile(CompareParameters);
+    expect(
+      compare.Check({
+        leftCaptureId: "capture-left",
+        rightCaptureId: "capture-right",
+      }),
+    ).toBe(true);
+    expect(
+      compare.Check({
+        leftCaptureId: "capture-left",
+        rightCaptureId: "capture-right",
+        labels: [
+          "B1",
+          "B2",
+        ],
+      }),
+    ).toBe(true);
+    // A variant comparison names both sides or neither.
+    expect(
+      compare.Check({
+        leftCaptureId: "capture-left",
+        rightCaptureId: "capture-right",
+        labels: [
+          "B1",
+        ],
+      }),
+    ).toBe(false);
+    expect(
+      compare.Check({
+        leftCaptureId: "capture-left",
+        rightCaptureId: "capture-right",
+        labels: [
+          "B1",
+          "B2",
+          "B3",
+        ],
+      }),
+    ).toBe(false);
+    expect(
+      compare.Check({
+        extra: true,
+        leftCaptureId: "capture-left",
+        rightCaptureId: "capture-right",
+      }),
+    ).toBe(false);
+    expect(
+      compare.Check({
+        leftCaptureId: "capture-left",
+      }),
+    ).toBe(false);
+
     const renderResult = tools.find(
       (tool) => tool.name === "visual_capture",
     )?.renderResult;
@@ -221,6 +275,25 @@ describe("visual tool registration", () => {
       },
     );
     expect(component?.render(80).join("")).toContain("[degraded] capture-render");
+    const compareRender = tools.find(
+      (tool) => tool.name === "visual_compare",
+    )?.renderResult;
+    const compared = compareRender?.(
+      {
+        content: [],
+        details: {
+          comparisonId: "comparison-render",
+          mode: "variant",
+        },
+      },
+      {
+        isPartial: false,
+      },
+      {
+        fg: (_color: string, text: string) => text,
+      },
+    );
+    expect(compared?.render(80).join("")).toContain("[variant] comparison-render");
   });
 });
 describe("visual tool errors", () => {
@@ -588,5 +661,88 @@ describe("visual verify tool output", () => {
   it("fails loudly when the returned images exceed the byte budget", async () => {
     const { result } = await verifyFixture(MAX_VERIFY_IMAGE_BYTES + 1);
     await expect(verifyContent(result)).rejects.toThrow("byte budget");
+  });
+});
+
+describe("visual compare tool output", () => {
+  async function compareFixture(bytes = 3) {
+    const directory = await mkdtemp(join(tmpdir(), "xpi-compare-tool-test-"));
+    roots.push(directory);
+    const leftPath = join(directory, "left.png");
+    const rightPath = join(directory, "right.png");
+    // Distinct fill bytes so a swapped side cannot pass unnoticed.
+    await Promise.all([
+      writeFile(leftPath, Buffer.alloc(bytes, 1)),
+      writeFile(rightPath, Buffer.alloc(bytes, 2)),
+    ]);
+    const left = capture(leftPath, {
+      captureId: "capture-left",
+    });
+    const right = capture(rightPath, {
+      captureId: "capture-right",
+    });
+    return {
+      left,
+      right,
+      result: {
+        comparison: {
+          afterCaptureId: right.captureId,
+          beforeCaptureId: left.captureId,
+          comparisonId: "comparison-tool",
+          mode: "variant",
+          status: "comparable",
+          diagnostics: {
+            after: right.diagnostics,
+            before: left.diagnostics,
+          },
+          labels: [
+            "B1 紧凑",
+            "B2 宽松",
+          ],
+          reasons: [
+            "page URL changed",
+          ],
+          targetChanges: {
+            changedFields: [],
+            status: "missing",
+          },
+        },
+        left,
+        right,
+      } satisfies Awaited<ReturnType<VisualLoopManager["compare"]>>,
+    };
+  }
+
+  it("returns both sides with their labels and never one without the other", async () => {
+    const { result } = await compareFixture();
+    const content = await compareContent(result);
+
+    expect(content).toHaveLength(5);
+    const labels = content
+      .filter((item) => item.type === "text")
+      .map((item) => item.text);
+    expect(labels).toEqual([
+      JSON.stringify(result.comparison),
+      "left viewport: capture-left · B1 紧凑",
+      "right viewport: capture-right · B2 宽松",
+    ]);
+    // The captions name the sides; before/after survives only as a storage field
+    // name inside the comparison record, which the spec does not ask to rename.
+    const captions = labels.slice(1);
+    expect(captions.join(" ")).not.toContain("before");
+    expect(captions.join(" ")).not.toContain("after");
+
+    const data = content
+      .filter((item) => item.type === "image")
+      .map((item) => item.data);
+    expect(data).toEqual([
+      Buffer.alloc(3, 1).toString("base64"),
+      Buffer.alloc(3, 2).toString("base64"),
+    ]);
+  });
+
+  it("fails loudly over budget instead of delivering a single side", async () => {
+    const { result } = await compareFixture(MAX_VERIFY_IMAGE_BYTES / 2 + 1);
+    await expect(compareContent(result)).rejects.toThrow("byte budget");
   });
 });

@@ -143,6 +143,34 @@ export const VerifyParameters = Type.Object(
   },
 );
 
+export const CompareParameters = Type.Object(
+  {
+    labels: Type.Optional(
+      Type.Array(
+        Type.String({
+          maxLength: 80,
+          minLength: 1,
+        }),
+        {
+          maxItems: 2,
+          minItems: 2,
+        },
+      ),
+    ),
+    leftCaptureId: Type.String({
+      maxLength: 160,
+      minLength: 1,
+    }),
+    rightCaptureId: Type.String({
+      maxLength: 160,
+      minLength: 1,
+    }),
+  },
+  {
+    additionalProperties: false,
+  },
+);
+
 /** Whole-verify image budget in original PNG bytes; the legacy path returned four images (~21 MiB once base64-encoded). */
 export const MAX_VERIFY_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_TOOL_ERROR_TEXT = 4 * 1024;
@@ -256,6 +284,48 @@ export async function verifyContent(
   if (bytes > MAX_VERIFY_IMAGE_BYTES)
     throw new Error(
       `visual verification images exceeded the ${MAX_VERIFY_IMAGE_BYTES}-byte budget; request a smaller region or a lower DPR`,
+    );
+  return [
+    {
+      text,
+      type: "text" as const,
+    },
+    ...images.flatMap((image) => image.content),
+  ];
+}
+
+function sideLabel(side: "left" | "right", captureId: string, label?: string) {
+  return label
+    ? `${side} viewport: ${captureId} · ${label}`
+    : `${side} viewport: ${captureId}`;
+}
+
+/**
+ * Review payload for `visual_compare`. Both sides are always returned: the point
+ * of a variant comparison is to be looked at, so delivering one side would hand
+ * the model half the evidence. Over budget fails loudly instead.
+ */
+export async function compareContent(
+  result: Awaited<ReturnType<VisualLoopManager["compare"]>>,
+) {
+  const text = JSON.stringify(result.comparison);
+  if (Buffer.byteLength(text, "utf8") > MAX_CAPTURE_TEXT)
+    throw new Error("visual comparison result exceeded the text budget");
+  const labels = result.comparison.labels;
+  const images = await Promise.all([
+    imageContent(
+      result.left.image.path,
+      sideLabel("left", result.left.captureId, labels?.[0]),
+    ),
+    imageContent(
+      result.right.image.path,
+      sideLabel("right", result.right.captureId, labels?.[1]),
+    ),
+  ]);
+  const bytes = images.reduce((total, image) => total + image.byteLength, 0);
+  if (bytes > MAX_VERIFY_IMAGE_BYTES)
+    throw new Error(
+      `visual comparison images exceeded the ${MAX_VERIFY_IMAGE_BYTES}-byte budget; lower the dpr or capture a smaller region`,
     );
   return [
     {
@@ -692,6 +762,58 @@ export default function xpiVisualoop(pi: ExtensionAPI): void {
       const color = details.status === "comparable" ? "success" : "warning";
       return new Text(
         theme.fg(color, `[${details.status}] ${details.comparisonId}`),
+        0,
+        0,
+      );
+    },
+  });
+
+  pi.registerTool({
+    description:
+      "Compose two existing captures into one comparison for choosing between design versions.",
+    label: "Compare two local visual versions",
+    name: "visual_compare",
+    parameters: CompareParameters,
+    async execute(_toolCallId, params) {
+      try {
+        // The schema pins labels to two entries; the tuple keeps compare honest.
+        const labels:
+          | [
+              string,
+              string,
+            ]
+          | undefined = params.labels
+          ? [
+              params.labels[0],
+              params.labels[1],
+            ]
+          : undefined;
+        const result = manager.compare(
+          params.leftCaptureId,
+          params.rightCaptureId,
+          labels,
+        );
+        return {
+          content: await compareContent(result),
+          details: result.comparison,
+        };
+      } catch (error) {
+        throw new Error(`visual_compare failed: ${toolErrorMessage(error)}`);
+      }
+    },
+    renderResult(result, { isPartial }, theme) {
+      if (isPartial)
+        return new Text(theme.fg("warning", "Comparing visual versions..."), 0, 0);
+      const details = result.details as
+        | {
+            comparisonId: string;
+            mode: "regression" | "variant";
+          }
+        | undefined;
+      if (!details)
+        return new Text(theme.fg("error", "Visual comparison failed"), 0, 0);
+      return new Text(
+        theme.fg("success", `[${details.mode}] ${details.comparisonId}`),
         0,
         0,
       );

@@ -26,7 +26,7 @@ async function sourceFiles(dir: string): Promise<string[]> {
   return files.flat();
 }
 
-/** The only CDP methods the four read-only actions may send. */
+/** The only CDP methods the five read-only actions may send. */
 const ALLOWED_CDP_METHODS = new Set([
   "Emulation.setDeviceMetricsOverride",
   "Log.enable",
@@ -45,6 +45,7 @@ const ALLOWED_CDP_METHODS = new Set([
 /** The exact tool surface the extension registers. */
 const EXPECTED_TOOL_NAMES = new Set([
   "visual_capture",
+  "visual_compare",
   "visual_feedback",
   "visual_prepare",
   "visual_verify",
@@ -61,7 +62,7 @@ const FORBIDDEN_MANAGER_METHOD =
   /click|input|type|navigate|eval|exec|script|key|scroll/i;
 
 describe("read-only boundary", () => {
-  it("exposes exactly the four-action manager surface", () => {
+  it("exposes exactly the five-action manager surface", () => {
     const methods = Object.getOwnPropertyNames(VisualLoopManager.prototype).filter(
       (name) => name !== "constructor",
     );
@@ -74,6 +75,7 @@ describe("read-only boundary", () => {
       "prepare",
       "capture",
       "verify",
+      "compare",
       "addFeedback",
       "disconnect",
     ]) {
@@ -81,7 +83,7 @@ describe("read-only boundary", () => {
     }
   });
 
-  it("registers exactly the four read-only tools", async () => {
+  it("registers exactly the five read-only tools", async () => {
     const [entry] = await sourceFiles(SRC_ROOT).then((files) =>
       files.filter((file) => file.endsWith("/index.ts")),
     );
