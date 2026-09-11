@@ -9,13 +9,16 @@ import xpiVisualoop, {
   captureContent,
   FeedbackParameters,
   feedbackReference,
+  MAX_VERIFY_IMAGE_BYTES,
   PrepareParameters,
   textComparisonFeedbackFallback,
   textFeedbackFallback,
   toolErrorMessage,
   unavailableFeedbackResult,
   VerifyParameters,
+  verifyContent,
 } from "../src/index.ts";
+import type { VisualLoopManager } from "../src/visual-loop/context.ts";
 import type { Capture, Comparison } from "../src/visual-loop/evidence.ts";
 
 const roots: string[] = [];
@@ -428,5 +431,162 @@ describe("visual capture tool output", () => {
         status: "cancelled",
       });
     });
+  });
+});
+
+describe("visual verify tool output", () => {
+  async function verifyFixture(bytes = 3) {
+    const directory = await mkdtemp(join(tmpdir(), "xpi-verify-tool-test-"));
+    roots.push(directory);
+    const beforePath = join(directory, "before.png");
+    const afterPath = join(directory, "after.png");
+    const regionBeforePath = join(directory, "region-before.png");
+    const regionAfterPath = join(directory, "region-after.png");
+    // Distinct fill bytes so a leaked viewport image cannot masquerade as a region one.
+    await Promise.all(
+      [
+        beforePath,
+        afterPath,
+        regionBeforePath,
+        regionAfterPath,
+      ].map((path, index) => writeFile(path, Buffer.alloc(bytes, index + 1))),
+    );
+    const before = capture(beforePath, {
+      captureId: "capture-before",
+    });
+    const after = capture(afterPath, {
+      captureId: "capture-after",
+    });
+    return {
+      after,
+      before,
+      result: {
+        after,
+        before,
+        comparison: {
+          afterCaptureId: after.captureId,
+          beforeCaptureId: before.captureId,
+          comparisonId: "comparison-tool",
+          reasons: [],
+          status: "comparable",
+          commonRegion: {
+            clipped: false,
+            after: {
+              byteLength: bytes,
+              height: 1,
+              path: regionAfterPath,
+              width: 1,
+              sourceRegion: {
+                height: 1,
+                width: 1,
+                x: 0,
+                y: 0,
+              },
+            },
+            before: {
+              byteLength: bytes,
+              height: 1,
+              path: regionBeforePath,
+              width: 1,
+              sourceRegion: {
+                height: 1,
+                width: 1,
+                x: 0,
+                y: 0,
+              },
+            },
+            region: {
+              height: 1,
+              width: 1,
+              x: 0,
+              y: 0,
+            },
+            sourceRegions: {
+              after: {
+                height: 1,
+                width: 1,
+                x: 0,
+                y: 0,
+              },
+              before: {
+                height: 1,
+                width: 1,
+                x: 0,
+                y: 0,
+              },
+            },
+          },
+          diagnostics: {
+            after: after.diagnostics,
+            before: before.diagnostics,
+          },
+          targetChanges: {
+            changedFields: [],
+            status: "unchanged",
+          },
+        },
+      } satisfies Awaited<ReturnType<VisualLoopManager["verify"]>>,
+    };
+  }
+
+  it("defaults to the common region pair only", async () => {
+    const { before, after, result } = await verifyFixture();
+    const content = await verifyContent(result);
+
+    expect(content).toHaveLength(5);
+    expect(content[0].type).toBe("text");
+    const labels = content
+      .filter((item) => item.type === "text")
+      .map((item) => item.text);
+    expect(labels).toEqual([
+      JSON.stringify(result.comparison),
+      "before common region: comparison-tool",
+      "after common region: comparison-tool",
+    ]);
+
+    const data = content
+      .filter((item) => item.type === "image")
+      .map((item) => item.data);
+    expect(data).toHaveLength(2);
+    expect(data).not.toContain(Buffer.alloc(3, 1).toString("base64"));
+    expect(data).not.toContain(Buffer.alloc(3, 2).toString("base64"));
+    void before;
+    void after;
+  });
+
+  it("adds the viewport images only when the caller asks for them", async () => {
+    const { before, after, result } = await verifyFixture();
+    const content = await verifyContent(result, {
+      includeViewportImages: true,
+    });
+
+    expect(content).toHaveLength(9);
+    const labels = content
+      .filter((item) => item.type === "text")
+      .map((item) => item.text);
+    expect(labels).toContain(`before viewport: ${before.captureId}`);
+    expect(labels).toContain(`after viewport: ${after.captureId}`);
+  });
+
+  it("still returns text when no common region could be produced", async () => {
+    const { result } = await verifyFixture();
+    const cloned = structuredClone(result) as {
+      comparison: {
+        commonRegion?: unknown;
+      };
+    };
+    cloned.comparison.commonRegion = undefined;
+    const content = await verifyContent(cloned as typeof result);
+    expect(content).toEqual([
+      {
+        text: JSON.stringify(cloned.comparison),
+        type: "text",
+      },
+    ]);
+  });
+
+  it("fails loudly when the returned images exceed the byte budget", async () => {
+    const { result } = await verifyFixture(MAX_VERIFY_IMAGE_BYTES + 1);
+    await expect(verifyContent(result)).rejects.toThrow("byte budget");
   });
 });

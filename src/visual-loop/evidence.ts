@@ -18,12 +18,14 @@ export interface CaptureTarget {
 }
 export interface ImageArtifact {
   byteLength: number;
+  /** Output pixels per page (document) coordinate unit. */
   coordinateScale: {
     x: number;
     y: number;
   };
   height: number;
   path: string;
+  /** Page document rectangle this image covers. */
   sourceRegion: Region;
   width: number;
 }
@@ -51,12 +53,7 @@ export interface Capture {
   dpr: number;
   endedAt: string;
   image: ImageArtifact & {
-    crop?: ImageArtifact & {
-      parentOffset: {
-        x: number;
-        y: number;
-      };
-    };
+    crop?: ImageArtifact;
     raw: {
       byteLength: number;
       height: number;
@@ -247,37 +244,6 @@ export function commonViewportRegion(
   };
 }
 
-export function imageRegionForViewport(
-  capture: Capture,
-  viewportRegion: Region,
-): Region {
-  const scaleX = capture.image.coordinateScale.x;
-  const scaleY = capture.image.coordinateScale.y;
-  const pageX = capture.page.scrollX + viewportRegion.x;
-  const pageY = capture.page.scrollY + viewportRegion.y;
-  const left = Math.floor((pageX - capture.image.sourceRegion.x) * scaleX);
-  const top = Math.floor((pageY - capture.image.sourceRegion.y) * scaleY);
-  const right = Math.ceil(
-    (pageX + viewportRegion.width - capture.image.sourceRegion.x) * scaleX,
-  );
-  const bottom = Math.ceil(
-    (pageY + viewportRegion.height - capture.image.sourceRegion.y) * scaleY,
-  );
-  if (
-    left < 0 ||
-    top < 0 ||
-    right > capture.image.width ||
-    bottom > capture.image.height
-  )
-    throw new Error("comparison region is outside the captured image");
-  return {
-    height: bottom - top,
-    width: right - left,
-    x: left,
-    y: top,
-  };
-}
-
 export function compareCaptureConditions(before: Capture, after: Capture): string[] {
   const reasons: string[] = [];
   if (
@@ -300,6 +266,8 @@ export function compareCaptureConditions(before: Capture, after: Capture): strin
     reasons.push("scroll position changed");
   if (before.stateLabel !== after.stateLabel)
     reasons.push("declared interaction state changed");
+  // sourceRegion is the document rectangle for both paths, so this is a real
+  // mapping comparison now that the legacy pixel-ratio conversion is gone.
   if (
     before.image.sourceRegion.x !== after.image.sourceRegion.x ||
     before.image.sourceRegion.y !== after.image.sourceRegion.y ||
@@ -630,7 +598,6 @@ function freezeCapture(value: Capture): Capture {
   Object.freeze(value.image.raw);
   if (value.image.crop) {
     Object.freeze(value.image.crop.coordinateScale);
-    Object.freeze(value.image.crop.parentOffset);
     Object.freeze(value.image.crop.sourceRegion);
     Object.freeze(value.image.crop);
   }
@@ -747,15 +714,7 @@ export class EvidenceStore {
       "capture image",
     );
     const crop = capture.image.crop
-      ? {
-          ...(await verifyArtifact(
-            rootPath,
-            ownedRoot,
-            capture.image.crop,
-            "capture crop",
-          )),
-          parentOffset: capture.image.crop.parentOffset,
-        }
+      ? await verifyArtifact(rootPath, ownedRoot, capture.image.crop, "capture crop")
       : undefined;
     const size =
       image.byteLength + (crop?.byteLength ?? 0) + capture.image.raw.byteLength;

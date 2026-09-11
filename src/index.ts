@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -35,11 +35,15 @@ export const PrepareParameters = Type.Object(
     viewport: Type.Optional(
       Type.Object({
         height: Type.Number({
-          maximum: 1600,
+          description:
+            "CSS pixels. The exported screenshot edge stays within 2000 device pixels, so at DPR 2 the effective cap is 1000.",
+          maximum: 2000,
           minimum: 240,
         }),
         width: Type.Number({
-          maximum: 2560,
+          description:
+            "CSS pixels. The exported screenshot edge stays within 2000 device pixels, so at DPR 2 the effective cap is 1000.",
+          maximum: 2000,
           minimum: 320,
         }),
       }),
@@ -120,6 +124,12 @@ export const VerifyParameters = Type.Object(
       maxLength: 160,
       minLength: 1,
     }),
+    includeViewportImages: Type.Optional(
+      Type.Boolean({
+        description:
+          "Also return the full before/after viewport images; the default return is only the common region pair.",
+      }),
+    ),
     stateLabel: Type.Optional(
       Type.String({
         maxLength: 120,
@@ -132,6 +142,8 @@ export const VerifyParameters = Type.Object(
   },
 );
 
+/** Whole-verify image budget in original PNG bytes; the legacy path returned four images (~21 MiB once base64-encoded). */
+export const MAX_VERIFY_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_TOOL_ERROR_TEXT = 4 * 1024;
 
 export function toolErrorMessage(error: unknown): string {
@@ -171,20 +183,87 @@ export async function captureContent(
 }
 
 export async function imageContent(path: string, label: string) {
-  const data = (await readFile(path)).toString("base64");
-  return [
-    {
-      text: label,
-      type: "text" as const,
-    },
-    {
-      type: "image" as const,
-      data,
-      mimeType: "image/png",
-    },
-  ];
+  const [data, file] = await Promise.all([
+    readFile(path).then((value) => value.toString("base64")),
+    stat(path),
+  ]);
+  return {
+    byteLength: file.size,
+    content: [
+      {
+        text: label,
+        type: "text" as const,
+      },
+      {
+        data,
+        mimeType: "image/png",
+        type: "image" as const,
+      },
+    ],
+  };
 }
 
+/**
+ * Review payload for `visual_verify`. The common-region pair is the default
+ * return because that is what the model actually compares; the viewport images
+ * are only added when the caller asks for them. Text and bundled bytes are
+ * both budgeted, and an over-budget call fails loudly instead of silently
+ * dropping evidence.
+ */
+export async function verifyContent(
+  result: Awaited<ReturnType<VisualLoopManager["verify"]>>,
+  options: {
+    includeViewportImages?: boolean;
+  } = {},
+) {
+  const text = JSON.stringify(result.comparison);
+  if (Buffer.byteLength(text, "utf8") > MAX_CAPTURE_TEXT)
+    throw new Error("visual comparison result exceeded the text budget");
+  const images: Array<Awaited<ReturnType<typeof imageContent>>> = [];
+  const common = result.comparison.commonRegion;
+  if (common) {
+    images.push(
+      await imageContent(
+        common.before.path,
+        `before common region: ${result.comparison.comparisonId}`,
+      ),
+      await imageContent(
+        common.after.path,
+        `after common region: ${result.comparison.comparisonId}`,
+      ),
+    );
+  }
+  let bytes = images.reduce((total, image) => total + image.byteLength, 0);
+  if (options.includeViewportImages) {
+    const viewport = await Promise.all([
+      imageContent(
+        result.before.image.path,
+        `before viewport: ${result.before.captureId}`,
+      ),
+      ...(result.after
+        ? [
+            await imageContent(
+              result.after.image.path,
+              `after viewport: ${result.after.captureId}`,
+            ),
+          ]
+        : []),
+    ]);
+    bytes += viewport.reduce((total, image) => total + image.byteLength, 0);
+    images.push(...viewport);
+  }
+  if (bytes > MAX_VERIFY_IMAGE_BYTES)
+    throw new Error(
+      `visual verification images exceeded the ${MAX_VERIFY_IMAGE_BYTES}-byte budget; request a smaller region or a lower DPR`,
+    );
+  return [
+    {
+      text,
+      type: "text" as const,
+    },
+    ...images.flatMap((image) => image.content),
+  ];
+}
 export function unavailableFeedbackResult(captureId: string, imagePath: string) {
   return {
     captureId,
@@ -588,35 +667,10 @@ export default function xpiVisualoop(pi: ExtensionAPI): void {
           _signal,
         );
         return {
+          content: await verifyContent(result, {
+            includeViewportImages: params.includeViewportImages,
+          }),
           details: result.comparison,
-          content: [
-            {
-              text: JSON.stringify(result.comparison),
-              type: "text" as const,
-            },
-            ...(await imageContent(
-              result.before.image.path,
-              `before viewport: ${result.before.captureId}`,
-            )),
-            ...(result.after
-              ? await imageContent(
-                  result.after.image.path,
-                  `after viewport: ${result.after.captureId}`,
-                )
-              : []),
-            ...(result.comparison.commonRegion
-              ? [
-                  ...(await imageContent(
-                    result.comparison.commonRegion.before.path,
-                    `before common region: ${result.comparison.comparisonId}`,
-                  )),
-                  ...(await imageContent(
-                    result.comparison.commonRegion.after.path,
-                    `after common region: ${result.comparison.comparisonId}`,
-                  )),
-                ]
-              : []),
-          ],
         };
       } catch (error) {
         throw new Error(`visual_verify failed: ${toolErrorMessage(error)}`);

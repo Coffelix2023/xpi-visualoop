@@ -1,8 +1,18 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, rm, stat } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, open, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ExtensionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { CdpClient } from "./cdp.ts";
+import {
+  type CdpPageInfo,
+  type CdpPrepareResult,
+  captureOwnedPage,
+  dropOwnedTarget,
+  type OwnedTargets,
+  OwnedTargets as OwnedTargetsClass,
+  prepareOwnedPage,
+} from "./cdp-actions.ts";
 import {
   loadConfig,
   type VisualLoopConfig,
@@ -17,21 +27,9 @@ import {
   EvidenceStore,
   type Feedback,
   type ImageArtifact,
-  imageRegionForViewport,
   type Region,
   summarizeTargetChanges,
 } from "./evidence.ts";
-import {
-  createPrivateHarnessDirs,
-  type HarnessCaptureResult,
-  type HarnessPrepareResult,
-  type PrivateHarnessDirs,
-  reloadHarness,
-  removePrivateHarnessDirs,
-  runCapture,
-  runCrop,
-  runPrepare,
-} from "./harness.ts";
 
 export interface Viewport {
   height: number;
@@ -64,14 +62,19 @@ export interface InspectionContextStatus {
 interface ActiveInspection {
   abortControllers: Set<AbortController>;
   busy: boolean;
+  cdp: CdpClient;
   config: VisualLoopConfig;
-  dirs: PrivateHarnessDirs;
+  /** Pages this session opened; only these are closed on release. */
+  createdTargets: string[];
   evidence: EvidenceStore;
+  /** Session-owned evidence directory, removed on release. */
+  evidenceDir: string;
   feedbackCancel?: () => void;
   inspectionId: string;
   lockHandle: Awaited<ReturnType<typeof open>>;
   lockPath: string;
-  page?: HarnessPrepareResult["page"];
+  owned: OwnedTargets;
+  page?: CdpPageInfo;
   queue: Promise<void>;
   stateLabel?: string;
   targetId: string;
@@ -82,9 +85,14 @@ const DEFAULT_VIEWPORT: Viewport = {
   height: 900,
   width: 1440,
 };
+/** Raw exported-edge budget in device pixels; every output screenshot must stay within it. */
+export const MAX_EXPORT_EDGE = 2000;
+/** Largest CSS pixel edge a viewport may have at DPR 1 (MAX_EXPORT_EDGE / 1). */
+const MAX_VIEWPORT_EDGE = MAX_EXPORT_EDGE;
+/** Layout caps for prepare; the per-request effective cap divides by the DPR. */
 const MAX_DPR = 2;
-const MAX_HEIGHT = 1600;
-const MAX_WIDTH = 2560;
+const MAX_HEIGHT = MAX_VIEWPORT_EDGE;
+const MAX_WIDTH = MAX_VIEWPORT_EDGE;
 const MIN_HEIGHT = 240;
 const MIN_WIDTH = 320;
 const LOCK_DIR = join(tmpdir(), "xpi-visualoop-locks");
@@ -93,9 +101,75 @@ function id(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function endpointLockPath(cdpUrl: string): string {
+export function endpointLockPath(cdpUrl: string): string {
   const digest = createHash("sha256").update(cdpUrl).digest("hex").slice(0, 32);
   return join(LOCK_DIR, `${digest}.lock`);
+}
+
+function lockOwnerIsGone(text: string): boolean {
+  let owner: unknown;
+  try {
+    owner = JSON.parse(text);
+  } catch {
+    return true;
+  }
+  if (typeof owner !== "object" || owner === null) return true;
+  const { pid } = owner as {
+    pid?: unknown;
+  };
+  if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) return true;
+  if (pid === process.pid) return false;
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ESRCH";
+  }
+}
+
+function endpointOwnedError(): Error {
+  return new Error(
+    "configured CDP endpoint is already owned by another xpi-visualoop process",
+  );
+}
+
+async function claimEndpointLock(
+  lockPath: string,
+): Promise<Awaited<ReturnType<typeof open>> | undefined> {
+  let handle: Awaited<ReturnType<typeof open>>;
+  try {
+    handle = await open(lockPath, "wx", 0o600);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    return undefined;
+  }
+  await handle.writeFile(
+    JSON.stringify({
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+    }),
+  );
+  return handle;
+}
+
+export async function acquireEndpointLock(
+  lockPath: string,
+): Promise<Awaited<ReturnType<typeof open>>> {
+  const claimed = await claimEndpointLock(lockPath);
+  if (claimed) return claimed;
+  let owner = "";
+  try {
+    owner = await readFile(lockPath, "utf8");
+  } catch {
+    // Lock vanished between open and read; claim once more below.
+  }
+  if (!lockOwnerIsGone(owner)) throw endpointOwnedError();
+  await rm(lockPath, {
+    force: true,
+  });
+  const preempted = await claimEndpointLock(lockPath);
+  if (preempted) return preempted;
+  throw endpointOwnedError();
 }
 
 function assertFiniteRange(
@@ -115,19 +189,22 @@ function normalizePrepareInput(
   Pick<PrepareInput, "stateLabel"> {
   const url = validateLocalPageUrl(input.url);
   const viewport = input.viewport ?? DEFAULT_VIEWPORT;
+  const dpr = assertFiniteRange(input.dpr ?? DEFAULT_DPR, 1, MAX_DPR, "dpr");
+  // The exported-edge budget is in device pixels, so the CSS-pixel viewport cap
+  // tightens as the DPR grows (DPR 2 -> 1000x1000).
+  const maxViewportEdge = MAX_VIEWPORT_EDGE / dpr;
   const width = assertFiniteRange(
     viewport.width,
     MIN_WIDTH,
-    MAX_WIDTH,
+    maxViewportEdge,
     "viewport.width",
   );
   const height = assertFiniteRange(
     viewport.height,
     MIN_HEIGHT,
-    MAX_HEIGHT,
+    maxViewportEdge,
     "viewport.height",
   );
-  const dpr = assertFiniteRange(input.dpr ?? DEFAULT_DPR, 1, MAX_DPR, "dpr");
   if (
     input.stateLabel !== undefined &&
     (input.stateLabel.length === 0 || input.stateLabel.length > 120)
@@ -160,22 +237,12 @@ function normalizeCaptureInput(input: CaptureInput): CaptureInput {
   return input;
 }
 
-function capturePage(page: HarnessCaptureResult["pageAfter"]): Capture["page"] {
-  if (
-    page.h === undefined ||
-    page.ph === undefined ||
-    page.pw === undefined ||
-    page.sx === undefined ||
-    page.sy === undefined ||
-    page.w === undefined
-  ) {
-    throw new Error("capture page metadata is incomplete");
-  }
+function capturePage(page: CdpPageInfo): Capture["page"] {
   return {
     height: page.ph,
     scrollX: page.sx,
     scrollY: page.sy,
-    title: page.title ?? "",
+    title: page.title,
     url: validateLocalPageUrl(page.url),
     width: page.pw,
   };
@@ -203,57 +270,24 @@ async function imageArtifact(
   };
 }
 
-function comparisonSourceRegion(capture: Capture, cropRegion: Region): Region {
-  return {
-    height: cropRegion.height / capture.image.coordinateScale.y,
-    width: cropRegion.width / capture.image.coordinateScale.x,
-    x: capture.image.sourceRegion.x + cropRegion.x / capture.image.coordinateScale.x,
-    y: capture.image.sourceRegion.y + cropRegion.y / capture.image.coordinateScale.y,
-  };
-}
-
+/**
+ * Common-region artifact for verify. The viewport image already covers the
+ * whole viewport, so the region artifact is a byte-for-byte copy of it; the
+ * recorded source region comes straight from the capture.
+ */
 async function createComparisonArtifact(
-  config: VisualLoopConfig,
-  dirs: PrivateHarnessDirs,
   capture: Capture,
-  viewportRegion: Region,
   outputPath: string,
-  signal: AbortSignal,
 ): Promise<ImageArtifact> {
-  const cropRegion = imageRegionForViewport(capture, viewportRegion);
-  const sourceRegion = comparisonSourceRegion(capture, cropRegion);
-  const result = await runCrop(
-    config,
-    dirs,
+  await copyFile(capture.image.path, outputPath);
+  return imageArtifact(
     {
-      action: "crop",
-      cropRegion,
-      outputPath,
-      sourcePath: capture.image.path,
+      height: capture.image.height,
+      path: outputPath,
+      width: capture.image.width,
     },
-    signal,
+    capture.image.sourceRegion,
   );
-  return imageArtifact(result, sourceRegion);
-}
-export function cropParentOffset(
-  crop: {
-    x: number;
-    y: number;
-  },
-  image: {
-    height: number;
-    rawHeight: number;
-    rawWidth: number;
-    width: number;
-  },
-): {
-  x: number;
-  y: number;
-} {
-  return {
-    x: crop.x * (image.width / image.rawWidth),
-    y: crop.y * (image.height / image.rawHeight),
-  };
 }
 
 export class VisualLoopManager {
@@ -266,7 +300,7 @@ export class VisualLoopManager {
     operationSignal?: AbortSignal,
   ): Promise<{
     epoch: number;
-    result: HarnessPrepareResult;
+    result: CdpPrepareResult;
     stateLabel?: string;
   }> {
     const request = normalizePrepareInput(input);
@@ -285,18 +319,18 @@ export class VisualLoopManager {
       if (epoch !== this.epoch || this.active !== active)
         throw new Error("visual loop session changed");
       await validateEndpointReachability(config.cdpUrl, operationSignal);
-      const result = await runPrepare(
-        config,
-        active.dirs,
+      const hadTarget = active.targetId !== "";
+      const result = await prepareOwnedPage(
+        active.cdp,
+        active.owned,
         {
-          action: "prepare",
           dpr: request.dpr,
-          targetId: active.targetId || undefined,
           url: request.url,
           viewport: request.viewport,
         },
         operationSignal,
       );
+      if (!hadTarget) active.createdTargets.push(result.targetId);
       validateLocalPageUrl(result.page.url);
       if (epoch !== this.epoch || this.active !== active)
         throw new Error("visual loop session changed");
@@ -328,18 +362,25 @@ export class VisualLoopManager {
         throw new Error("visual loop session changed");
       await validateEndpointReachability(active.config.cdpUrl, captureSignal);
       const captureId = id("capture");
-      const imagePath = join(active.dirs.tmpDir, `${captureId}.png`);
-      const targetImagePath = join(active.dirs.tmpDir, `${captureId}.target.png`);
-      const result = await runCapture(
-        active.config,
-        active.dirs,
+      const imagePath = join(active.evidenceDir, `${captureId}.png`);
+      const targetImagePath = join(active.evidenceDir, `${captureId}.target.png`);
+      const result = await captureOwnedPage(
+        active.cdp,
+        active.owned,
+        active.targetId,
         {
-          action: "capture",
-          allowTargetFailure: request.allowTargetFailure,
-          targetImagePath,
+          ...(request.allowTargetFailure === undefined
+            ? {}
+            : {
+                allowTargetFailure: request.allowTargetFailure,
+              }),
           imagePath,
-          selector: request.selector,
-          targetId: active.targetId,
+          ...(request.selector === undefined
+            ? {}
+            : {
+                selector: request.selector,
+              }),
+          targetImagePath,
         },
         captureSignal,
       );
@@ -350,13 +391,13 @@ export class VisualLoopManager {
       const page = capturePage(result.pageAfter);
       const viewport = {
         height: assertFiniteRange(
-          result.pageAfter.h ?? Number.NaN,
+          result.pageAfter.h,
           1,
           MAX_HEIGHT,
           "capture viewport height",
         ),
         width: assertFiniteRange(
-          result.pageAfter.w ?? Number.NaN,
+          result.pageAfter.w,
           1,
           MAX_WIDTH,
           "capture viewport width",
@@ -371,26 +412,15 @@ export class VisualLoopManager {
         image: {
           ...(result.image.crop
             ? {
-                crop: {
-                  ...(await imageArtifact(
-                    result.image.crop,
-                    result.image.crop.sourceRegion,
-                  )),
-                  parentOffset: cropParentOffset(
-                    result.image.crop.parentOffset,
-                    result.image,
-                  ),
-                },
+                crop: await imageArtifact(
+                  result.image.crop,
+                  result.image.crop.sourceRegion,
+                ),
               }
             : {}),
-          ...(await imageArtifact(result.image, {
-            height: viewport.height,
-            width: viewport.width,
-            x: page.scrollX,
-            y: page.scrollY,
-          })),
+          ...(await imageArtifact(result.image, result.image.sourceRegion)),
           raw: {
-            byteLength: result.image.temporaryByteLength,
+            byteLength: 0,
             height: result.image.rawHeight,
             width: result.image.rawWidth,
           },
@@ -435,8 +465,13 @@ export class VisualLoopManager {
     if (found.status !== "available")
       throw new Error(`baseline capture is unavailable: ${found.status}`);
     const before = found.capture;
+    // A silent `?? before.stateLabel` would let a page that was clicked without
+    // declaring it still compare as equal; the caller has to say the state out loud.
+    if (before.stateLabel !== undefined && input.stateLabel === undefined)
+      throw new Error(
+        `baseline capture declared stateLabel "${before.stateLabel}"; pass the same stateLabel to confirm the interaction state is unchanged, or the new one if it changed`,
+      );
     let after: Capture | undefined;
-    const signal = operationSignal ?? ctx.signal ?? new AbortController().signal;
     let failure: string | undefined;
     try {
       after = await this.capture(
@@ -444,7 +479,7 @@ export class VisualLoopManager {
         {
           allowTargetFailure: true,
           selector: before.target?.selector,
-          stateLabel: input.stateLabel ?? before.stateLabel,
+          stateLabel: input.stateLabel,
         },
         operationSignal,
       );
@@ -467,26 +502,12 @@ export class VisualLoopManager {
         y: 0,
       });
       if (common) {
-        const beforePath = join(active.dirs.tmpDir, `${comparisonId}.before.png`);
-        const afterPath = join(active.dirs.tmpDir, `${comparisonId}.after.png`);
+        const beforePath = join(active.evidenceDir, `${comparisonId}.before.png`);
+        const afterPath = join(active.evidenceDir, `${comparisonId}.after.png`);
         try {
           const [beforeImage, afterImage] = await Promise.all([
-            createComparisonArtifact(
-              active.config,
-              active.dirs,
-              before,
-              common.region,
-              beforePath,
-              signal,
-            ),
-            createComparisonArtifact(
-              active.config,
-              active.dirs,
-              after,
-              common.region,
-              afterPath,
-              signal,
-            ),
+            createComparisonArtifact(before, beforePath),
+            createComparisonArtifact(after, afterPath),
           ]);
           commonRegion = {
             after: afterImage,
@@ -657,6 +678,11 @@ export class VisualLoopManager {
     };
   }
 
+  /**
+   * Releases the connection and the pages this session opened. Aborting the
+   * in-flight controllers first cancels work already queued or running, and the
+   * browser process and its profile are never touched.
+   */
   async disconnect(): Promise<void> {
     const active = this.active;
     if (!active) return;
@@ -664,18 +690,22 @@ export class VisualLoopManager {
     this.epoch += 1;
     for (const controller of active.abortControllers) controller.abort();
     await active.queue.catch(() => undefined);
-    if (active.targetId && active.page) {
-      await runPrepare(active.config, active.dirs, {
-        action: "close",
-        expectedUrl: active.page.url,
-        targetId: active.targetId,
-      }).catch(() => undefined);
+    for (const targetId of active.createdTargets) {
+      const sessionId = active.owned.session(targetId);
+      if (sessionId === undefined) continue;
+      await dropOwnedTarget(active.cdp, active.owned, targetId, sessionId).catch(
+        () => undefined,
+      );
     }
+    await active.cdp.close().catch(() => undefined);
     await active.lockHandle.close().catch(() => undefined);
     await rm(active.lockPath, {
       force: true,
     }).catch(() => undefined);
-    await cleanupHarness(active.config, active.dirs).catch(() => undefined);
+    await rm(active.evidenceDir, {
+      force: true,
+      recursive: true,
+    }).catch(() => undefined);
   }
 
   async resetSession(): Promise<void> {
@@ -687,51 +717,49 @@ export class VisualLoopManager {
   }
 
   private async connect(config: VisualLoopConfig, signal?: AbortSignal): Promise<void> {
-    await validateEndpointReachability(config.cdpUrl, signal);
-    await mkdir(LOCK_DIR, {
-      mode: 0o700,
-      recursive: true,
-    });
-    const lockPath = endpointLockPath(config.cdpUrl);
-    let lockHandle: Awaited<ReturnType<typeof open>>;
+    const cdp = new CdpClient();
+    let lockHandle: Awaited<ReturnType<typeof open>> | undefined;
+    let lockPath: string | undefined;
+    let evidenceDir: string | undefined;
     try {
-      lockHandle = await open(lockPath, "wx", 0o600);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-        throw new Error(
-          "configured CDP endpoint is already owned by another xpi-visualoop process",
-        );
-      }
-      throw error;
-    }
-    const dirs = await createPrivateHarnessDirs();
-    try {
-      await lockHandle.writeFile(
-        JSON.stringify({
-          pid: process.pid,
-          startedAt: new Date().toISOString(),
-        }),
-      );
+      await cdp.connect(config.cdpUrl, signal);
+      await mkdir(LOCK_DIR, {
+        mode: 0o700,
+        recursive: true,
+      });
+      lockPath = endpointLockPath(config.cdpUrl);
+      lockHandle = await acquireEndpointLock(lockPath);
+      evidenceDir = await mkdtemp(join(tmpdir(), "xpv-"));
       this.active = {
+        abortControllers: new Set(),
+        busy: false,
+        cdp,
         config,
-        dirs,
-        evidence: new EvidenceStore(dirs.tmpDir, this.epoch),
+        createdTargets: [],
+        evidenceDir,
+        evidence: new EvidenceStore(evidenceDir, this.epoch),
         inspectionId: id("inspection"),
         lockHandle,
         lockPath,
-        abortControllers: new Set(),
-        busy: false,
+        owned: new OwnedTargetsClass(),
         page: undefined,
         queue: Promise.resolve(),
         stateLabel: undefined,
         targetId: "",
       };
     } catch (error) {
-      await lockHandle.close().catch(() => undefined);
-      await rm(lockPath, {
-        force: true,
-      }).catch(() => undefined);
-      await removePrivateHarnessDirs(dirs);
+      await cdp.close().catch(() => undefined);
+      await lockHandle?.close().catch(() => undefined);
+      if (lockPath) {
+        await rm(lockPath, {
+          force: true,
+        }).catch(() => undefined);
+      }
+      if (evidenceDir)
+        await rm(evidenceDir, {
+          force: true,
+          recursive: true,
+        }).catch(() => undefined);
       throw error;
     }
   }
@@ -770,7 +798,7 @@ export function formatPrepareResult(
   inspectionId: string | undefined,
   prepared: {
     epoch: number;
-    result: HarnessPrepareResult;
+    result: CdpPrepareResult;
     stateLabel?: string;
   },
 ): string {
@@ -779,7 +807,6 @@ export function formatPrepareResult(
     epoch: prepared.epoch,
     inspectionId,
     page: prepared.result.page,
-    protocolVersion: prepared.result.protocolVersion,
     stateLabel: prepared.stateLabel,
     targetId: prepared.result.targetId,
   };
@@ -790,12 +817,4 @@ export function defaultViewport(): Viewport {
   return {
     ...DEFAULT_VIEWPORT,
   };
-}
-
-export async function cleanupHarness(
-  config: VisualLoopConfig,
-  dirs: PrivateHarnessDirs,
-): Promise<void> {
-  await reloadHarness(config, dirs).catch(() => undefined);
-  await removePrivateHarnessDirs(dirs);
 }

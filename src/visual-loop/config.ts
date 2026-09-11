@@ -4,13 +4,13 @@ import { isAbsolute, resolve } from "node:path";
 export interface VisualLoopConfig {
   cdpUrl: string;
   glimpseModulePath?: string;
-  harnessPath: string;
 }
 
 interface PartialVisualLoopConfig {
   cdpUrl?: string;
   glimpseModulePath?: string;
-  harnessPath?: string;
+  /** Legacy external backend path; rejected with a migration hint. */
+  harnessPath?: unknown;
 }
 
 export interface ConfigLoadResult {
@@ -21,42 +21,23 @@ export interface ConfigLoadResult {
 const CONFIG_KEYS = new Set([
   "cdpUrl",
   "glimpseModulePath",
+]);
+const REMOVED_KEYS = new Set([
   "harnessPath",
 ]);
+export const HARNESS_MIGRATION_HINT =
+  "harnessPath has been removed: the visual loop now drives Chrome directly over the Chrome DevTools Protocol and no longer uses an external browser backend; delete the harnessPath key from your configuration.";
 const LOOPBACK_HOSTS = new Set([
   "127.0.0.1",
   "localhost",
   "::1",
 ]);
-const COMMAND_NAME = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/;
 
 function objectRecord(value: unknown, source: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(`${source} must contain a JSON object`);
   }
   return value as Record<string, unknown>;
-}
-
-function validateExecutable(value: unknown, source: string): string {
-  if (typeof value !== "string" || value.length === 0 || value.length > 4096) {
-    throw new Error(`${source}.harnessPath must be a non-empty path`);
-  }
-  if (value.includes("\0") || value.includes("\n") || value.includes("\r")) {
-    throw new Error(`${source}.harnessPath contains a forbidden character`);
-  }
-  if (isAbsolute(value)) return value;
-  if (
-    value.startsWith("./") ||
-    value.startsWith("../") ||
-    value.includes("/") ||
-    value.includes("\\")
-  ) {
-    throw new Error(`${source}.harnessPath must be absolute or a command name`);
-  }
-  if (!COMMAND_NAME.test(value)) {
-    throw new Error(`${source}.harnessPath is not a safe command name`);
-  }
-  return value;
 }
 
 export function isLoopbackHost(hostname: string): boolean {
@@ -104,13 +85,12 @@ export function validateLocalPageUrl(value: unknown): string {
 function parsePartial(value: unknown, source: string): PartialVisualLoopConfig {
   const record = objectRecord(value, source);
   for (const key of Object.keys(record)) {
+    if (REMOVED_KEYS.has(key)) throw new Error(`${source}: ${HARNESS_MIGRATION_HINT}`);
     if (!CONFIG_KEYS.has(key))
       throw new Error(`${source} contains unknown field: ${key}`);
   }
   const result: PartialVisualLoopConfig = {};
   if ("cdpUrl" in record) result.cdpUrl = validateEndpoint(record.cdpUrl);
-  if ("harnessPath" in record)
-    result.harnessPath = validateExecutable(record.harnessPath, source);
   if ("glimpseModulePath" in record) {
     if (
       typeof record.glimpseModulePath !== "string" ||
@@ -184,8 +164,8 @@ export async function loadConfig(
     }
   }
 
-  if (!merged.cdpUrl || !merged.harnessPath) {
-    diagnostics.push("visual loop is not configured: set cdpUrl and harnessPath");
+  if (!merged.cdpUrl) {
+    diagnostics.push("visual loop is not configured: set cdpUrl");
     return {
       diagnostics,
     };
@@ -198,16 +178,20 @@ export async function loadConfig(
             glimpseModulePath: merged.glimpseModulePath,
           }
         : {}),
-      harnessPath: merged.harnessPath,
+      ...(merged.glimpseModulePath
+        ? {
+            glimpseModulePath: merged.glimpseModulePath,
+          }
+        : {}),
     },
     diagnostics,
   };
 }
 
-export async function validateEndpointReachability(
+export async function resolveCdpWebSocketUrl(
   cdpUrl: string,
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<string> {
   const endpoint = new URL("/json/version", cdpUrl);
   let response: Response;
   try {
@@ -240,4 +224,12 @@ export async function validateEndpointReachability(
   ) {
     throw new Error("CDP WebSocket URL must remain on a loopback host");
   }
+  return wsUrl.toString();
+}
+
+export async function validateEndpointReachability(
+  cdpUrl: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await resolveCdpWebSocketUrl(cdpUrl, signal);
 }
