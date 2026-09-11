@@ -79,6 +79,8 @@ Linux 上换成你发行版的 Chrome 或 Chromium 可执行文件,参数相同�
 
 Chrome 不在默认位置(macOS 的 `/Applications`,或 `PATH` 上的 `google-chrome` / `chromium`)时,把 `XPI_VISUALOOP_CHROME` 设成浏览器的绝对路径。
 
+
+评审面板是一个 Glimpse 窗口(`glimpseui`)。它是可选的:未安装时评审降级为整张截图的文字反馈。面板固定文案跟随会话语言,除非工具调用显式声明 `language`;你传的问题、选项与标签一律原样呈现,不会被翻译。
 ### 从 `harnessPath` 迁移
 
 旧版本调用单独安装的 `browser-harness` 可执行程序。该后端已删除,`harnessPath` 现在是**破坏性变更**,不是「废弃键」。仍带该键的配置会被拒绝启动,并返回迁移提示。
@@ -91,18 +93,23 @@ Chrome 不在默认位置(macOS 的 `/Applications`,或 `PATH` 上的 `google-ch
 
 ## 工具与命令
 
-流程显式且串行。只有四个只读工具,没有第五个。
+流程显式且串行。只有五个只读工具,没有第六个。
 
 | 工具 | 作用 |
 | --- | --- |
 | `visual_prepare` | 准备一个回环 URL、视口、DPR(设备像素比)和可选声明 `stateLabel`。可能创建或导航扩展拥有的标签页。 |
 | `visual_capture` | 采集当前视口,或采集一个唯一且可见的选择器。不会导航、滚动、调整视口、点击或输入。 |
-| `visual_feedback` | 在 Glimpse 里评审一个 `captureId` 或 `comparisonId`:单个图像区域、数字坐标、一条意见、提交或取消。 |
+| `visual_compare` | 把两张已存在的截图组成一次比较。不采集、不导航、不滚动,并始终记录 `mode: "variant"`。 |
+| `visual_feedback` | 在 Glimpse 里评审一个 `captureId` 或 `comparisonId`:点选元素或拖动框选区域加一条意见,或调用方提供问题与选项时收回一个结构化选择。 |
 | `visual_verify` | 复用基准截图的上下文与目标生成新的「修改后」截图。返回 `comparable` 或 `not-comparable`、独立诊断、目标/样式变化和有界前后图。 |
 
 `stateLabel` 是调用方声明,永远不是浏览器给出的证明。基准声明过 `stateLabel` 时,`visual_verify` 会拒绝沉默的调用方,要求传同一个标签(交互状态没变)或新标签(已变)。少了这道检查,一次「因为打开菜单而产生的差异」会被报成「因为你的代码改动而产生的差异」。
 
 `visual_verify` 默认只返回共同区域的前后图。传 `includeViewportImages` 才会连整视口前后图一起返回。
+
+`visual_compare` 把两张已有截图组成一次比较,并记录 `mode: "variant"`——这是「两个设计版本」,不是「改动前后」,所以页面地址、设备像素比、滚动位置这类差异会作为信息返回,而不是拒绝比较。传 `labels` 给两侧命名;不传时面板说左右,而不是前后。variant 比较会把两侧图像都返回,模型看到的和面板展示的是同一对图。
+
+面板里可以点选元素(悬停显示 `selector · role`)或拖动框选区域;只有点选产生的区域带元素身份。`question` 与 `options` 一起传时,面板只问一个问题,答案以结构化 `choice` 返回。`Esc` 先落定取消,再问是要重新打开面板、跳过这一步,还是本轮不再询问;答案以 `reopenRequested` 与 `suppressForRound` 返回,被抑制的这一轮后续调用直接返回 `suppressed`,不会再开面板。
 
 ```text
 /xpi-visualoop status        # 当前检查上下文
@@ -117,7 +124,7 @@ Chrome 不在默认位置(macOS 的 `/Applications`,或 `PATH` 上的 `google-ch
 
 - 导出截图:最长边不超过 2,000 设备像素,且不超过 4 MiB。
 - 单次工具 JSON 结果不超过 64 KiB;面向模型的采集文本不超过 16 KiB。
-- `visual_verify`:文本不超过 16 KiB,图像合计不超过 4 MiB;任一超限都明确失败,不会静默丢弃证据。
+- `visual_verify` 与 `visual_compare`:文本不超过 16 KiB,图像合计不超过 4 MiB;任一超限都明确失败,不会静默丢弃证据。
 - console 与 network 失败摘要各最多 20 条,并标记截断。
 - 用户意见最多 2,000 字符。
 - 单次操作 30 秒;就绪等待 5 秒;反馈面板 10 分钟。

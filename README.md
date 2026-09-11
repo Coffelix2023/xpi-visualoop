@@ -79,6 +79,8 @@ Configuration is optional. Without it the extension uses the default endpoint `h
 
 Set `XPI_VISUALOOP_CHROME` to an absolute browser path when Chrome is not in the default locations (macOS `/Applications`, or `google-chrome` / `chromium` on `PATH`).
 
+The review panel is a Glimpse window (`glimpseui`). It is optional: without it, review degrades to text over the whole screenshot. Its fixed copy follows the session language unless a tool call declares `language`; the question, options, and labels you pass are never translated.
+
 ### Migrating from `harnessPath`
 
 Earlier versions invoked a separately installed `browser-harness` executable. That backend is gone; `harnessPath` is now a **breaking change**, not a deprecated key. A config that still contains it fails closed with a migration hint.
@@ -91,18 +93,23 @@ There is no database or browser-profile migration.
 
 ## Tools and command
 
-The sequence is explicit and serial. Four read-only tools, no others.
+The sequence is explicit and serial. Five read-only tools, no others.
 
 | Tool | What it does |
 | --- | --- |
 | `visual_prepare` | Prepare one loopback URL, viewport, DPR (device pixel ratio), and an optional declared `stateLabel`. May create or navigate the extension-owned tab. |
 | `visual_capture` | Capture the current viewport or one unique visible selector. Never navigates, scrolls, resizes, clicks, or types. |
-| `visual_feedback` | Review one `captureId` or `comparisonId` in Glimpse: one image region, numeric coordinates, a comment, submit or cancel. |
+| `visual_compare` | Compose one comparison out of two captures that already exist. Never captures, navigates, or scrolls, and always records `mode: "variant"`. |
+| `visual_feedback` | Review one `captureId` or `comparisonId` in Glimpse: a picked element or a dragged region plus a comment, or a structured choice when the caller supplied a question. |
 | `visual_verify` | Reuse a baseline capture's context and target for a new after-capture. Returns `comparable` or `not-comparable`, independent diagnostics, target/style changes, and bounded before/after images. |
 
 `stateLabel` is a caller declaration, never proof supplied by the browser. When the baseline declared one, `visual_verify` refuses a silent caller and asks for the same label (the state is unchanged) or a new one (it changed). A verification that skipped this check could report a diff caused by opening a menu as if it were caused by your code.
 
 By default `visual_verify` returns only the common region before and after. Pass `includeViewportImages` to also get the full-viewport pair.
+
+`visual_compare` composes one comparison out of two captures that already exist. It records `mode: "variant"` — two design versions, not a change and its result — so the usual comparability differences (page URL, device pixel ratio, scroll position) come back as information instead of refusing the comparison. Pass `labels` to name the two sides; without them the panel says left and right rather than before and after. A variant comparison returns both sides as images, so the model sees the same pair the panel shows.
+
+In the panel you can pick an element (hovering shows its `selector · role`) or drag a region; only a picked region carries the element's identity. Pass `question` and `options` together and the panel asks a single question whose answer comes back as a structured `choice`. `Esc` settles the cancel first and then asks whether to reopen the panel, skip the step, or stop asking for this inspection; the answer returns as `reopenRequested` and `suppressForRound`, and a suppressed round returns `suppressed` on later calls instead of opening anything.
 
 ```text
 /xpi-visualoop status        # current inspection context
@@ -117,7 +124,7 @@ Budgets are fixed on purpose; they are not a configuration surface.
 
 - Exported screenshot: longest edge at most 2,000 device pixels and at most 4 MiB.
 - One tool JSON result: at most 64 KiB. Model-facing capture text: at most 16 KiB.
-- `visual_verify`: text at most 16 KiB, images at most 4 MiB in total; exceeding either fails loudly instead of dropping evidence silently.
+- `visual_verify` and `visual_compare`: text at most 16 KiB, images at most 4 MiB in total; exceeding either fails loudly instead of dropping evidence silently.
 - Console and network failure summaries: at most 20 entries each, truncation marked.
 - Feedback comment: at most 2,000 characters.
 - Operation: 30 seconds. Readiness wait: 5 seconds. Feedback panel: 10 minutes.
