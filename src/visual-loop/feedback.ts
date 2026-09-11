@@ -322,10 +322,10 @@ export function renderFeedbackPanel(input: FeedbackPanelInput): string {
     : undefined;
   const imageContent = comparison
     ? `<section class="comparison-images" aria-label="Before and after screenshots">
-<figure><figcaption>Before · ${escapeHtml(comparison.beforeCaptureId)}</figcaption><div class="shot"><img id="before-image" alt="Before page screenshot" src="${beforeSrc}" width="${comparison.beforeImage.width}" height="${comparison.beforeImage.height}"></div></figure>
-<figure><figcaption>After · ${escapeHtml(input.captureId)} · feedback target</figcaption><div id="image-scroll" class="shot" aria-label="After screenshot region selector"><div id="image-stage"><img id="evidence-image" alt="After page screenshot" src="${src}" width="${image.width}" height="${image.height}"><div id="selection"></div></div></div></figure>
+<figure><figcaption>Before · ${escapeHtml(comparison.beforeCaptureId)}</figcaption><div class="shot"><img id="before-image" draggable="false" alt="Before page screenshot" src="${beforeSrc}" width="${comparison.beforeImage.width}" height="${comparison.beforeImage.height}"></div></figure>
+<figure><figcaption>After · ${escapeHtml(input.captureId)} · feedback target</figcaption><div id="image-scroll" class="shot" aria-label="After screenshot region selector"><div id="image-stage"><img id="evidence-image" draggable="false" alt="After page screenshot" src="${src}" width="${image.width}" height="${image.height}"><div id="selection"></div></div></div></figure>
 </section>`
-    : `<section id="image-scroll" class="shot single" aria-label="Screenshot region selector"><div id="image-stage"><img id="evidence-image" alt="Captured page screenshot" src="${src}" width="${image.width}" height="${image.height}"><div id="selection"></div></div></section>`;
+    : `<section id="image-scroll" class="shot single" aria-label="Screenshot region selector"><div id="image-stage"><img id="evidence-image" draggable="false" alt="Captured page screenshot" src="${src}" width="${image.width}" height="${image.height}"><div id="selection"></div></div></section>`;
   const title = comparison ? "Visual comparison" : "Visual feedback";
   const identity = comparison
     ? `${comparison.comparisonId} · ${comparison.status} · Not reviewed`
@@ -357,7 +357,8 @@ figcaption { color: var(--muted); font-size: 11px; }
 .shot { min-height: 120px; overflow: auto; border: 1px solid var(--rule); padding: 12px; }
 .shot.single { flex: 1; }
 #image-stage { position: relative; width: max-content; min-width: 1px; }
-#before-image, #evidence-image { display: block; max-width: none; user-select: none; }
+/* user-select only blocks text selection; -webkit-user-drag is what stops the native image drag. */
+#before-image, #evidence-image { display: block; max-width: none; user-select: none; -webkit-user-drag: none; }
 #selection { position: absolute; display: none; border: 2px solid var(--primary); background: color-mix(in srgb, var(--primary) 20%, transparent); pointer-events: none; }
 .fields { display: grid; grid-template-columns: repeat(4, minmax(60px, 1fr)); gap: 8px; }
 label { display: grid; gap: 4px; color: var(--muted); font-size: 11px; }
@@ -414,7 +415,10 @@ ${imageContent}
   };
   const sourcePoint = (event) => { const rect = image.getBoundingClientRect(); return { x: (event.clientX - rect.left) * source.width / rect.width, y: (event.clientY - rect.top) * source.height / rect.height }; };
   const send = (message) => { if (!sent) { sent = true; window.glimpse.send(message); } };
-  image.addEventListener("pointerdown", (event) => { start = sourcePoint(event); image.setPointerCapture(event.pointerId); });
+  image.addEventListener("pointerdown", (event) => { event.preventDefault(); start = sourcePoint(event); image.setPointerCapture(event.pointerId); });
+  // Belt and braces: the attribute and the CSS rule are the other two guards, and the
+  // dragstart handler still holds if the stylesheet is ever regenerated without them.
+  image.addEventListener("dragstart", (event) => event.preventDefault());
   image.addEventListener("pointermove", (event) => { if (!start) return; const end = sourcePoint(event); fields.x.value = String(Math.round(Math.min(start.x, end.x))); fields.y.value = String(Math.round(Math.min(start.y, end.y))); fields.width.value = String(Math.round(Math.abs(end.x - start.x))); fields.height.value = String(Math.round(Math.abs(end.y - start.y))); updateSelection(); });
   image.addEventListener("pointerup", () => { start = null; });
   Object.values(fields).forEach((field) => field.addEventListener("input", updateSelection));

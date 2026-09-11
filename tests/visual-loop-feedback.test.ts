@@ -222,6 +222,59 @@ describe("visual feedback panel HTML", () => {
     expect(html).toContain('id="feedback-comment"');
     expect(html).toContain("if (!sent)");
   });
+
+  it("blocks the native image drag on every panel image", () => {
+    const single = renderFeedbackPanel({
+      capturedAt: "2026-09-09T00:00:00.000Z",
+      captureId: "capture-single",
+      imagePath: "/tmp/single.png",
+      pageTitle: "Single",
+      pageUrl: "http://127.0.0.1:8765/",
+      readiness: "ready",
+      readinessReasons: [],
+      image: {
+        height: 200,
+        width: 300,
+      },
+    });
+    const comparison = renderFeedbackPanel({
+      capturedAt: "2026-09-09T00:00:01.000Z",
+      captureId: "capture-after",
+      pageTitle: "After",
+      pageUrl: "http://127.0.0.1:8765/",
+      readiness: "ready",
+      readinessReasons: [],
+      comparison: {
+        beforeCaptureId: "capture-before",
+        comparisonId: "comparison-drag",
+        reasons: [],
+        status: "comparable",
+        beforeImage: {
+          height: 200,
+          path: "/tmp/before.png",
+          width: 300,
+        },
+      },
+      image: {
+        height: 200,
+        path: "/tmp/after.png",
+        width: 300,
+      },
+    });
+    for (const html of [
+      single,
+      comparison,
+    ]) {
+      expect(html).toContain("-webkit-user-drag: none");
+      expect(html).toContain('addEventListener("dragstart"');
+      expect(html).toContain("event.preventDefault(); start = sourcePoint");
+      // Counting rather than spot-checking: a panel image added later without
+      // the attribute fails this even if the CSS rule is still in place.
+      expect(html.match(/draggable="false"/g)?.length).toBe(
+        html.match(/<img /g)?.length,
+      );
+    }
+  });
 });
 
 it("renders immutable before and after versions without an automatic pass", () => {
