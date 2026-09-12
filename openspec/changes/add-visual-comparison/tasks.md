@@ -41,13 +41,13 @@
 
 ## 8. 取消与追问
 
-- [ ] 8.1 取消先落定，再在同一窗口内弹出追问，返回值携带 `reopenRequested` / `suppressForRound`；追问内再按 Esc 只关闭追问并回到面板保持未提交；验证：单测覆盖三种选择与追问内 Esc 四条路径的返回值
-- [ ] 8.2 `suppressForRound` 边界为一次检查上下文，抑制期内再次请求不开面板并返回 `suppressed`，inspection 结束后恢复；验证：单测覆盖抑制期内调用与 inspection 结束后的恢复
+- [x] 8.1 取消先落定，再在同一窗口内弹出追问，返回值携带 `reopenRequested` / `suppressForRound`；追问内再按 Esc 只关闭追问并回到面板保持未提交；验证：单测覆盖三种选择与追问内 Esc 四条路径的返回值（`tests/visual-loop-feedback.test.ts`）；真实面板补充实测：Esc → 追问 → 「本轮不再询问」得 `{status:"cancelled", reopenRequested:false, suppressForRound:true}`，见 `integration-record.md`
+- [x] 8.2 `suppressForRound` 边界为一次检查上下文，抑制期内再次请求不开面板并返回 `suppressed`，inspection 结束后恢复；验证：`tests/visual-loop-verify-manager.test.ts` 覆盖抑制期内调用与 inspection 结束后的恢复、`tests/visual-loop-tool.test.ts` 覆盖抑制返回体；真实面板补充实测：同一 inspection 内再次调用返回 `{status:"suppressed"}` 且未开面板
 
 ## 9. 集成验收
 
-- [ ] 9.1 真实交互验收（选型）：`prepare v1 → capture → prepare b1 → capture → prepare b2 → capture → visual_compare → visual_feedback(question, options)` 并选择 B1；验证：返回 `chosen: "B1"`，且两侧图像均出现在模型侧结果中（含日志/返回体证据）
-- [ ] 9.2 真实交互验收（点选）：用点选取 `#save-button` 并提交；验证：区域等于该元素边界且反馈携带 `selector` / `role` / `text`
-- [ ] 9.3 回归验收：`visual_verify` 的 `not-comparable` 行为未被污染；验证：对 URL 变化后的目标复核仍返回 `not-comparable` 且 `reasons` 含页面地址差异
-- [ ] 9.4 门禁：`pnpm typecheck`、`pnpm -w run lint`、`pnpm test` 三条全绿；验证：三条命令输出全部通过，测试总数较变更前增加
-- [ ] 9.5 文档同步：`README.md` 与 `README.zh-CN.md` 的工具表、预算章节与 Setup 说明更新；验证：README 中列出的工具数量与代码实际注册数量一致
+- [x] 9.1 真实交互验收（选型）：`prepare v1 → capture → prepare b1 → capture → prepare b2 → capture → visual_compare → visual_feedback(question, options)` 并选择 B1；验证：返回 `chosen: "B1 紧凑版"`，`comparison-mtxmprpg-fb2b7rpq` 为 `mode: "variant"` / `status: "comparable"` 且模型侧收到两张视口图（含返回体证据，见 `integration-record.md`）
+- [x] 9.2 真实交互验收（点选）：用点选取 `#save-button` 并提交；验证：`source:"pick"`、区域 `{x:347,y:179,width:114,height:34}` 等于该元素边界，且反馈携带 `selector` / `role` / `text`（该验收暴露并修复了点选缺陷 `007dd2d`）
+- [x] 9.3 回归验收：`visual_verify` 的 `not-comparable` 行为未被污染；验证：同一 target 换地址后复核仍返回 `status:"not-comparable"`、`mode:"regression"`、`reasons:["page URL changed"]`
+- [x] 9.4 门禁：`pnpm typecheck`、`pnpm -w run lint`、`pnpm test` 三条全绿；验证：`tsc --noEmit` 通过、biome 0 errors 0 warnings（5 infos 与基线一致）、vitest 141 passed | 6 skipped（变更前 133 passed | 6 skipped）
+- [x] 9.5 文档同步：`README.md` 与 `README.zh-CN.md` 的工具表、预算章节与 Setup 说明更新；验证：脚本核对两张 README 工具表各 5 行，与 `src/index.ts` 实际注册的 5 个工具逐项一致
