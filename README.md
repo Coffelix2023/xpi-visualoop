@@ -28,7 +28,7 @@ It is deliberately read-only. The agent can look; it cannot click, type, scroll,
 
 ## Install
 
-Requires Pi and a Chrome/Chromium you launch yourself on a loopback debugging port.
+Requires Pi and a Chromium-based browser (Chrome, Chromium, Brave, Edge, or Arc) that can expose a loopback remote debugging endpoint.
 
 ```bash
 pi install git:github.com/Coffelix2023/xpi-visualoop
@@ -52,7 +52,7 @@ The package ships TypeScript source and has no build step: `package.json` points
 
 ## Setup
 
-The extension never touches your daily profile and never falls back to another browser. It only starts a Chrome of its own when a visual tool needs the endpoint and nothing is listening there. That browser is a child process: `/xpi-visualoop disconnect` closes it, and Pi's own exit reaps it. A browser you started yourself is never adopted and never closed.
+The extension never touches your daily profile and never falls back to another browser. It only starts a Chromium-based browser of its own when a visual tool needs the endpoint and nothing is listening there. That browser is a child process: `/xpi-visualoop disconnect` closes it, and Pi's own exit reaps it. A browser you started yourself is never adopted and never closed.
 
 Prepare one yourself when you want to control the window:
 
@@ -65,19 +65,34 @@ Prepare one yourself when you want to control the window:
   about:blank
 ```
 
-On Linux, use your distribution's Chrome or Chromium binary with the same flags.
+On Linux, use your distribution's Chromium-based browser (for example `google-chrome`, `chromium`, `microsoft-edge`, or `brave-browser`) with the same flags.
 
 Configuration is optional. Without it the extension uses the default endpoint `http://127.0.0.1:9333/`, the port in the command above. To point it somewhere else, write a config file at `<agentDir>/xpi-visualoop.json`; a trusted project may override it at `<cwd>/.pi/xpi-visualoop.json`.
 
 ```json
 {
-  "cdpUrl": "http://127.0.0.1:9333/"
+  "cdpUrl": "http://127.0.0.1:9333/",
+  "launch": "minimized"
 }
 ```
 
-`cdpUrl` must be an `http://` loopback endpoint. `glimpseModulePath` is optional and must be absolute. Unknown fields, a mistyped `cdpUrl`, and an unparsable file still fail closed rather than being ignored; only the absent key falls back to the default.
+`cdpUrl` must be an `http://` loopback endpoint. `launch` is optional and accepts `minimized` (default), `headless`, or `windowed`. `glimpseModulePath` is optional and must be absolute. Unknown fields, a mistyped `cdpUrl`, an unsupported `launch` value, and an unparsable file still fail closed rather than being ignored; only the absent key falls back to the default.
 
-Set `XPI_VISUALOOP_CHROME` to an absolute browser path when Chrome is not in the default locations (macOS `/Applications`, or `google-chrome` / `chromium` on `PATH`).
+### Launch forms
+
+`launch` decides how the extension starts **its own** browser. A browser you started yourself is never re-shaped by it.
+
+| `launch` | What happens | Can the user see and operate the page? |
+| --- | --- | --- |
+| `minimized` (default) | Headed window, minimized as soon as the endpoint answers, plus anti-throttling flags so a covered window still renders. | Yes. Bring the window back from the **Dock** (macOS) or the taskbar, change the page state by hand, then capture again. |
+| `headless` | `--headless=new`: no window exists. | No. The page is not visible and the user cannot change its interaction state, so a review that needs a user interaction cannot be completed in that context. |
+| `windowed` | The previous behavior: a visible, focused window. | Yes, directly. |
+
+The window state is applied over CDP and reported back in the `visual_prepare` result (`launch`, `userOperable`, `interaction`, `windowState`). `windowState: "unknown"` means the minimization was neither confirmed nor applied — the extension does not claim a window state it could not verify.
+
+> **BREAKING (default behavior).** Before `launch` existed, the extension always started a visible window. The default is now `minimized`, so no window comes to the front and no keyboard focus is taken. Set `"launch": "windowed"` to get the old behavior back.
+
+Set `XPI_VISUALOOP_CHROME` to an absolute browser path when the browser is not in the default locations (macOS `/Applications`, or `google-chrome` / `chromium` / `microsoft-edge` / `brave-browser` on `PATH`).
 
 The review panel is a Glimpse window (`glimpseui`). It is optional: without it, review degrades to text over the whole screenshot. Its fixed copy follows the session language unless a tool call declares `language`; the question, options, and labels you pass are never translated.
 
@@ -116,7 +131,7 @@ In the panel you can pick an element (hovering shows its `selector · role`) or 
 /xpi-visualoop disconnect    # cancel work, release owned files, close the browser it started
 ```
 
-`disconnect` cancels pending operations, invalidates old evidence, removes extension-owned temporary files and browser resources, and closes the Chrome process this extension started. A browser you started yourself is left running.
+`disconnect` cancels pending operations, invalidates old evidence, removes extension-owned temporary files and browser resources, and closes the browser process this extension started. A browser you started yourself is left running.
 
 ## Limits and fallback behavior
 
@@ -139,10 +154,11 @@ Known limits:
 - The package is marked `private`, so `npm:` installs are not available. Use the git or local-path install above.
 - Fedora Linux is not validated. The verified environment is macOS Darwin `25.6.2` arm64 with Chrome `152.0.7977.84`, Node.js `24.20.0`, and Pi `0.85.1`.
 - The screenshots are real pixels of your page. See the privacy boundary below before pointing this at anything with credentials on screen.
+- **The default launch form is `minimized`, which is a breaking change** from the earlier always-visible window. What the user can do differs by form: with `minimized` the window exists but must be brought back from the Dock or taskbar before anyone can operate the page; with `headless` there is no window at all, so the page is invisible and a review that depends on the user changing the page by hand cannot be completed. `visual_prepare` reports which of the two applies (`userOperable`, `interaction`).
 
 ## Files, privacy boundary, and rollback
 
-Screenshots and intermediate files live in a private temporary directory owned by the inspection. Cleanup removes only what this extension created. A hard crash can leave residue for a later ownership check. A Chrome the extension started is a child of the Pi process and is reaped on exit; the profile it writes is the dedicated `~/.cache/xpi-visualoop/chrome-profile` directory, never a daily profile.
+Screenshots and intermediate files live in a private temporary directory owned by the inspection. Cleanup removes only what this extension created. A hard crash can leave residue for a later ownership check. A browser the extension started is a child of the Pi process and is reaped on exit; the profile it writes is the dedicated `~/.cache/xpi-visualoop/chrome-profile` directory, never a daily profile.
 
 A screenshot returned in a tool result may be persisted by the Pi session or sent to your configured model service. Cleaning the extension's temporary directory does not delete those copies. Local capture is not a claim that the image never leaves the machine.
 
@@ -179,7 +195,15 @@ A runnable acceptance probe for the full loop lives at `docs/references/native-c
 node --experimental-transform-types docs/references/native-cdp-probes/verify.mjs
 ```
 
-It starts its own dedicated Chrome and page server, then exercises prepare, capture, the silent-caller rejection, a comparable verification, a real Glimpse feedback round, and the release path. `PROBE_SKIP_FEEDBACK=1` skips the human panel.
+It starts its own dedicated Chromium-based browser and page server, then exercises prepare, capture, the silent-caller rejection, a comparable verification, a real Glimpse feedback round, and the release path. `PROBE_SKIP_FEEDBACK=1` skips the human panel.
+
+The launch forms have their own probe, `docs/references/native-cdp-probes/launch-forms.mjs`:
+
+```bash
+node --experimental-transform-types docs/references/native-cdp-probes/launch-forms.mjs
+```
+
+It runs all three forms against a real Chromium and a real page: the extension self-starts a browser for each, the minimized case is read back as `minimized` through `Browser.getWindowForTarget` and still produces the same pixels as the visible case, the headless case is checked in the process command line, and a stand-in browser the user owns must survive every case. It opens a visible window for the `windowed` case.
 
 ```text
 .

@@ -28,7 +28,7 @@
 
 ## 安装
 
-前置条件:Pi,以及你自己在回环调试端口上启动的 Chrome/Chromium。
+前置条件:Pi,以及任意 Chromium 系浏览器(Chrome、Chromium、Brave、Edge、Arc 皆可),能在回环端口上暴露远程调试端点。
 
 ```bash
 pi install git:github.com/Coffelix2023/xpi-visualoop
@@ -52,7 +52,7 @@ pi remove git:github.com/Coffelix2023/xpi-visualoop
 
 ## 配置
 
-扩展从不碰你的日常 profile,也不会回退到别的浏览器。只有当视觉工具需要端点而该端口上没有任何监听时,它才会启动一个自己的 Chrome。那个 Chrome 是子进程:`/xpi-visualoop disconnect` 会关掉它,Pi 退出时也会回收。你自己启动的浏览器不会被接管,也不会被关闭。
+扩展从不碰你的日常 profile,也不会回退到别的浏览器。只有当视觉工具需要端点而该端口上没有任何监听时,它才会启动一个自己的 Chromium 系浏览器。那个浏览器是子进程:`/xpi-visualoop disconnect` 会关掉它,Pi 退出时也会回收。你自己启动的浏览器不会被接管,也不会被关闭。
 
 想自己控制窗口,就手动准备一个专用实例:
 
@@ -65,20 +65,33 @@ pi remove git:github.com/Coffelix2023/xpi-visualoop
   about:blank
 ```
 
-Linux 上换成你发行版的 Chrome 或 Chromium 可执行文件,参数相同。
+Linux 上换成你发行版的 Chromium 系浏览器(例如 `google-chrome`、`chromium`、`microsoft-edge`、`brave-browser`),参数相同。
 
 配置是可选的。没有配置时,扩展使用默认端点 `http://127.0.0.1:9333/`,也就是上面那条命令里的端口。要换成别的地址,把配置写到 `<agentDir>/xpi-visualoop.json`;受信任的项目可用 `<cwd>/.pi/xpi-visualoop.json` 覆盖。
 
 ```json
 {
-  "cdpUrl": "http://127.0.0.1:9333/"
-}
+  "cdpUrl": "http://127.0.0.1:9333/",
+  "launch": "minimized"
 ```
 
-`cdpUrl` 必须是 `http://` 回环端点。`glimpseModulePath` 可选,必须是绝对路径。未知字段、写错的 `cdpUrl`、无法解析的文件依然 fail-closed(失败闭合)拒绝,只有「键缺失」这一种情况回退到默认值。
+`cdpUrl` 必须是 `http://` 回环端点。`launch` 可选,取值为 `minimized`(默认)、`headless`、`windowed`。`glimpseModulePath` 可选,必须是绝对路径。未知字段、写错的 `cdpUrl`、不支持的 `launch` 取值、无法解析的文件依然 fail-closed(失败闭合)拒绝,只有「键缺失」这一种情况回退到默认值。
 
-Chrome 不在默认位置(macOS 的 `/Applications`,或 `PATH` 上的 `google-chrome` / `chromium`)时,把 `XPI_VISUALOOP_CHROME` 设成浏览器的绝对路径。
+### 启动形态
 
+`launch` 决定扩展启动**自己那个**浏览器时的形态。你自己启动的浏览器不受它影响。
+
+| `launch` | 会发生什么 | 用户能看到并操作页面吗 |
+| --- | --- | --- |
+| `minimized`(默认) | 有头窗口,端点一就绪立即最小化,并附带防节流参数,让被遮挡的窗口仍然渲染。 | 能。从 **Dock**(macOS)或任务栏把窗口调回前台,手动改变页面状态,然后重新采集。 |
+| `headless` | `--headless=new`:不存在窗口。 | 不能。页面不可见,用户无法改变页面的交互状态,因此依赖用户手动交互的复核在此上下文中无法完成。 |
+| `windowed` | 变更前的行为:可见且获得焦点的窗口。 | 能,直接操作。 |
+
+窗口状态经 CDP 下发,并在 `visual_prepare` 结果中回传(`launch`、`userOperable`、`interaction`、`windowState`)。`windowState: "unknown"` 表示最小化既未确认也未生效——扩展不会声称一个自己未能验证的窗口状态。
+
+> **破坏性变更(默认行为)。** 在 `launch` 出现之前,扩展总是启动可见窗口;现在默认是 `minimized`,不会有窗口跑到前台,也不会夺取键盘焦点。想恢复旧行为,设 `"launch": "windowed"`。
+
+浏览器不在默认位置(macOS 的 `/Applications`,或 `PATH` 上的 `google-chrome` / `chromium` / `microsoft-edge` / `brave-browser`)时,把 `XPI_VISUALOOP_CHROME` 设成浏览器的绝对路径。
 评审面板是一个 Glimpse 窗口(`glimpseui`)。它是可选的:未安装时评审降级为整张截图的文字反馈。面板固定文案跟随会话语言,除非工具调用显式声明 `language`;你传的问题、选项与标签一律原样呈现,不会被翻译。
 
 ### 从 `harnessPath` 迁移
@@ -139,6 +152,7 @@ Glimpse 不可用但 Pi 有 UI(用户界面)时,反馈降级为对**整张截图
 - 本包标记为 `private`,因此不能用 `npm:` 方式安装,请用上面的 git 或本地路径方式。
 - Fedora Linux 未验证。已验证环境为 macOS Darwin `25.6.2` arm64,Chrome `152.0.7977.84`,Node.js `24.20.0`,Pi `0.85.1`。
 - 截图是你页面的真实像素。指向任何屏幕上会出现凭据的页面之前,先读下面的隐私边界。
+- **默认启动形态是 `minimized`,相对早期「始终可见窗口」属破坏性变更。** 不同形态下用户能做的事不同:`minimized` 时窗口存在,但用户必须先从 Dock 或任务栏把窗口调回前台才能操作页面;`headless` 时根本没有窗口,页面不可见,依赖用户手动改变页面状态的复核在该上下文中无法完成。`visual_prepare` 会报告当前属于哪一种(`userOperable`、`interaction`)。
 
 ## 文件、隐私边界与回滚
 
@@ -179,7 +193,15 @@ scripts/trigger-eval.sh --case 2 # 只跑一个用例
 node --experimental-transform-types docs/references/native-cdp-probes/verify.mjs
 ```
 
-它自起专用 Chrome 与页面服务,依次验证准备、采集、沉默调用方被拒、一次可比复核、一次真实的 Glimpse 反馈往返,以及释放路径。`PROBE_SKIP_FEEDBACK=1` 可跳过人工面板。
+它自起专用 Chromium 系浏览器与页面服务,依次验证准备、采集、沉默调用方被拒、一次可比复核、一次真实的 Glimpse 反馈往返,以及释放路径。`PROBE_SKIP_FEEDBACK=1` 可跳过人工面板。
+
+启动形态另有专门的验收脚本 `docs/references/native-cdp-probes/launch-forms.mjs`:
+
+```bash
+node --experimental-transform-types docs/references/native-cdp-probes/launch-forms.mjs
+```
+
+它用真实 Chromium 与真实页面跑完三种形态:每种形态都由扩展自启浏览器;最小化形态经 `Browser.getWindowForTarget` 读回 `minimized`,并且与可见形态产出完全相同的像素;无头形态核对进程命令行,并用一个「用户自己的」替身浏览器验证它在每个用例后都还活着。`windowed` 用例会打开一个真实可见窗口。
 
 ```text
 .
@@ -190,7 +212,7 @@ node --experimental-transform-types docs/references/native-cdp-probes/verify.mjs
 ├── skills/xpi-visualoop/    # SKILL.md:模型据以判断「什么时候该看」的那段描述
 ├── scripts/                 # trigger-eval.sh:should-call 冒烟评测
 ├── src/index.ts             # Pi 扩展注册入口
-├── src/visual-loop/         # 配置、Chrome 启动器、CDP 客户端与动作、证据、反馈、上下文
+├── src/visual-loop/         # 配置、浏览器启动器、CDP 客户端与动作、证据、反馈、上下文
 └── tests/                   # 聚焦单元/集成测试
 ```
 
