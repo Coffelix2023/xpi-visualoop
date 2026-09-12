@@ -369,7 +369,6 @@ describe("visual feedback panel HTML", () => {
     expect(html).toContain("Pick one option");
   });
 
-
   it("gives a comparison that asks a question exactly one answer channel", () => {
     // Found by acceptance: the panel used to offer the accept button and the option
     // list at once, and the bridge refuses `accept` in a choice panel — so pressing
@@ -377,21 +376,26 @@ describe("visual feedback panel HTML", () => {
     const html = renderFeedbackPanel({
       capturedAt: "2026-09-09T00:00:01.000Z",
       captureId: "capture-after",
+      pageTitle: "After",
+      pageUrl: "http://127.0.0.1:8765/",
+      question: "Which version?",
+      readiness: "ready",
+      readinessReasons: [],
       comparison: {
         beforeCaptureId: "capture-before",
+        comparisonId: "comparison-choice",
+        mode: "variant",
+        reasons: [],
+        status: "comparable",
         beforeImage: {
           height: 200,
           path: "/tmp/before.png",
           width: 300,
         },
-        comparisonId: "comparison-choice",
         labels: [
           "B1",
           "B2",
         ],
-        mode: "variant",
-        reasons: [],
-        status: "comparable",
       },
       image: {
         height: 200,
@@ -402,11 +406,6 @@ describe("visual feedback panel HTML", () => {
         "B1",
         "B2",
       ],
-      pageTitle: "After",
-      pageUrl: "http://127.0.0.1:8765/",
-      question: "Which version?",
-      readiness: "ready",
-      readinessReasons: [],
     });
     expect(html).toContain('type="radio"');
     expect(html).toContain("Submit choice");

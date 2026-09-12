@@ -18,6 +18,7 @@ interface FakeNode {
   clientWidth?: number;
   closest: (selector: string) => FakeNode | null;
   dataset: Record<string, string>;
+  fire: (type: string, event: Record<string, unknown>) => void;
   focus: () => void;
   getBoundingClientRect: () => {
     height: number;
@@ -27,33 +28,29 @@ interface FakeNode {
   };
   height?: number;
   hidden?: boolean;
+  setAttribute: (name: string, value: string) => void;
+  setPointerCapture: (pointerId: number) => void;
   style: Record<string, string>;
   textContent?: string;
   value?: string;
   width?: number;
-  setPointerCapture: (pointerId: number) => void;
-  setAttribute: (name: string, value: string) => void;
-  fire: (type: string, event: Record<string, unknown>) => void;
 }
 
 function fakeNode(extra: Partial<FakeNode> = {}): FakeNode {
   const listeners = new Map<string, Handler[]>();
   const node: FakeNode = {
+    attributes: {},
+    dataset: {},
+    style: {},
     addEventListener: (type, handler) => {
       listeners.set(type, [
         ...(listeners.get(type) ?? []),
         handler,
       ]);
     },
-    attributes: {},
     closest: () => null,
-    dataset: {},
     fire: (type, event) => {
       for (const handler of listeners.get(type) ?? []) handler(event);
-    },
-    setPointerCapture: () => undefined,
-    setAttribute: (name, value) => {
-      node.attributes[name] = String(value);
     },
     focus: () => undefined,
     getBoundingClientRect: () => ({
@@ -62,7 +59,10 @@ function fakeNode(extra: Partial<FakeNode> = {}): FakeNode {
       top: 0,
       width: 300,
     }),
-    style: {},
+    setAttribute: (name, value) => {
+      node.attributes[name] = String(value);
+    },
+    setPointerCapture: () => undefined,
     ...extra,
   };
   return node;
@@ -74,6 +74,8 @@ const IMAGE_RECT = {
   top: 0,
   width: 300,
 };
+
+const SCRIPT_PATTERN = /<script>([\s\S]*)<\/script>/;
 
 function harness() {
   const box = {
@@ -98,9 +100,9 @@ function harness() {
   const image = fakeNode({
     clientHeight: 200,
     clientWidth: 300,
-    getBoundingClientRect: () => IMAGE_RECT,
     height: 200,
     width: 300,
+    getBoundingClientRect: () => IMAGE_RECT,
   });
   const selection = fakeNode();
   const fields: Record<string, FakeNode> = {
@@ -119,13 +121,13 @@ function harness() {
   };
   const label = fakeNode();
   const nodes: Record<string, FakeNode> = {
+    cancel: fakeNode(),
     "cancel-dialog": fakeNode({
       hidden: true,
     }),
     "cancel-never": fakeNode(),
     "cancel-reopen": fakeNode(),
     "cancel-skip": fakeNode(),
-    cancel: fakeNode(),
     error: fakeNode(),
     "evidence-image": image,
     "feedback-comment": fakeNode({
@@ -158,9 +160,11 @@ function harness() {
     getElementById: (id: string) => nodes[id],
     querySelector: () => undefined,
     querySelectorAll: (selector: string) =>
-      selector === "[data-hotspot]" ? [
-        hotspot,
-      ] : [],
+      selector === "[data-hotspot]"
+        ? [
+            hotspot,
+          ]
+        : [],
   };
   const window = {
     glimpse: {
@@ -169,6 +173,12 @@ function harness() {
   };
 
   const html = renderFeedbackPanel({
+    capturedAt: "2026-09-12T00:00:00.000Z",
+    captureId: "capture-pick",
+    pageTitle: "Pick",
+    pageUrl: "http://127.0.0.1:8765/",
+    readiness: "ready",
+    readinessReasons: [],
     candidates: [
       {
         bounds: box,
@@ -179,21 +189,14 @@ function harness() {
         visibleBounds: box,
       },
     ],
-    capturedAt: "2026-09-12T00:00:00.000Z",
-    captureId: "capture-pick",
     image: {
       height: 200,
       path: "/tmp/pick.png",
       width: 300,
     },
-    pageTitle: "Pick",
-    pageUrl: "http://127.0.0.1:8765/",
-    readiness: "ready",
-    readinessReasons: [],
   });
-  const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
+  const script = html.match(SCRIPT_PATTERN)?.[1];
   if (!script) throw new Error("the panel rendered without a script");
-  // biome-ignore lint/security/noGlobalEval: the test runs the panel's own generated script.
   new Function("document", "window", script)(document, window);
 
   const pointer = (type: string, x: number, y: number) => {
@@ -201,8 +204,8 @@ function harness() {
       clientX: x,
       clientY: y,
       pointerId: 1,
-      preventDefault: () => undefined,
       target: stage,
+      preventDefault: () => undefined,
     };
     stage.fire(type, event);
     hotspot.fire(type, event);
