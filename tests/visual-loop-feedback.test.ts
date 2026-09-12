@@ -1,18 +1,22 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Capture } from "../src/visual-loop/evidence.ts";
 import {
+  buildGlimpseWrapper,
   displayRegionToImageRegion,
   embedFeedbackImage,
   feedbackPanelInput,
   loadGlimpse,
   PANEL_COPY,
+  quietGlimpseBinary,
   renderFeedbackPanel,
   resolvePanelLanguage,
   validateFeedbackBridgeMessage,
   validateFeedbackDraft,
   waitForFeedbackPanel,
+  wrapGlimpseBinary,
 } from "../src/visual-loop/feedback.ts";
 
 describe("embedded feedback evidence", () => {
@@ -624,6 +628,93 @@ describe("optional glimpse loading", () => {
       loadGlimpse("/tmp/visual-loop-missing-glimpse.mjs"),
     ).resolves.toBeNull();
   });
+
+  it("keeps macOS InputMethodKit noise out of the editor", () => {
+    // glimpseui spawns the window host with the parent's stderr, so this line used to
+    // be written into the Pi editor and eat the user's input line.
+    expect(
+      buildGlimpseWrapper("/opt/glimpse/glimpse", "/tmp/x/glimpse-stderr.log"),
+    ).toBe(
+      '#!/bin/sh\nexec "/opt/glimpse/glimpse" "$@" 2>"/tmp/x/glimpse-stderr.log"\n',
+    );
+  });
+
+  it("sets the quiet host only while a window is being started", () => {
+    const previous = process.env.GLIMPSE_BINARY_PATH;
+    delete process.env.GLIMPSE_BINARY_PATH;
+    const window = {
+      close: () => undefined,
+      on: () => undefined,
+    };
+    const module = {
+      open: () => {
+        expect(process.env.GLIMPSE_BINARY_PATH).toBe("/tmp/wrapper");
+        return window;
+      },
+    };
+    const throwing = {
+      open: () => {
+        throw new Error("window failed to start");
+      },
+    };
+
+    try {
+      expect(wrapGlimpseBinary(module, "/tmp/wrapper").open("<p />")).toBe(window);
+      // The override must not survive the launch: it would change every later
+      // Glimpse window in this process, including other extensions'.
+      expect(process.env.GLIMPSE_BINARY_PATH).toBeUndefined();
+      expect(() => wrapGlimpseBinary(throwing, "/tmp/wrapper").open("<p />")).toThrow(
+        "failed to start",
+      );
+      expect(process.env.GLIMPSE_BINARY_PATH).toBeUndefined();
+      process.env.GLIMPSE_BINARY_PATH = "/tmp/caller-chosen";
+      wrapGlimpseBinary(module, "/tmp/wrapper").open("<p />");
+      expect(process.env.GLIMPSE_BINARY_PATH).toBe("/tmp/caller-chosen");
+    } finally {
+      if (previous === undefined) delete process.env.GLIMPSE_BINARY_PATH;
+      else process.env.GLIMPSE_BINARY_PATH = previous;
+    }
+  });
+
+  it("leaves the launch alone when there is nothing to quiet", () => {
+    expect(quietGlimpseBinary(undefined)).toBeNull();
+    expect(quietGlimpseBinary("/tmp/no-glimpse-here/glimpse.mjs")).toBeNull();
+    const previous = process.env.GLIMPSE_BINARY_PATH;
+    process.env.GLIMPSE_BINARY_PATH = "/tmp/caller-chosen";
+    try {
+      // A caller who declared its own host keeps it.
+      expect(quietGlimpseBinary("/tmp/caller-chosen-module/glimpse.mjs")).toBeNull();
+    } finally {
+      if (previous === undefined) delete process.env.GLIMPSE_BINARY_PATH;
+      else process.env.GLIMPSE_BINARY_PATH = previous;
+    }
+  });
+
+  it.skipIf(process.platform !== "darwin")(
+    "points Glimpse at a wrapper beside that module",
+    async () => {
+      const directory = await mkdtemp(join(tmpdir(), "xpi-glimpse-wrapper-test-"));
+      try {
+        const modulePath = join(directory, "glimpse.mjs");
+        const binaryPath = join(directory, "glimpse");
+        await writeFile(modulePath, "export const open = () => undefined;\n");
+        await writeFile(binaryPath, "#!/bin/sh\n");
+
+        const wrapper = quietGlimpseBinary(modulePath);
+        expect(wrapper).not.toBeNull();
+        const script = await readFile(wrapper ?? "", "utf8");
+        expect(script).toContain(binaryPath);
+        expect(script).toContain("2>");
+        const mode = (await stat(wrapper ?? "")).mode;
+        expect(mode & 0o111).not.toBe(0);
+      } finally {
+        await rm(directory, {
+          force: true,
+          recursive: true,
+        });
+      }
+    },
+  );
 });
 
 describe("visual feedback bridge messages", () => {

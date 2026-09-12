@@ -1,8 +1,8 @@
-import { existsSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type {
   Capture,
   CaptureCandidate,
@@ -957,6 +957,80 @@ export function waitForFeedbackPanel(
   });
 }
 
+const GLIMPSE_QUIET_DIR = join(tmpdir(), "xpi-visualoop-glimpse");
+
+/**
+ * glimpseui spawns its window host with the parent's stderr, so macOS InputMethodKit
+ * noise ("error messaging the mach port for IMKCFRunLoopWakeUpReliable") is written
+ * straight into the Pi editor and eats the input line. Point Glimpse at a one-line
+ * wrapper that keeps that stderr in a log file instead.
+ *
+ * macOS only on purpose: the same override flips glimpseui's `supportsOpenLinks`
+ * flag, which is only honest for the macOS host.
+ */
+export function buildGlimpseWrapper(realBinary: string, logPath: string): string {
+  return `#!/bin/sh\nexec "${realBinary}" "$@" 2>"${logPath}"\n`;
+}
+
+/**
+ * Returns the wrapper path, or null when the launch should be left alone: another
+ * platform, a caller who declared its own host, or a module with no native binary
+ * beside it (the Linux/Chromium backend spawns Node instead).
+ */
+export function quietGlimpseBinary(modulePath: string | undefined): string | null {
+  if (process.platform !== "darwin") return null;
+  if (process.env.GLIMPSE_BINARY_PATH || process.env.GLIMPSE_HOST_PATH) return null;
+  if (!modulePath?.startsWith("/")) return null;
+  const binary = join(dirname(modulePath), "glimpse");
+  if (!existsSync(binary)) return null;
+  mkdirSync(GLIMPSE_QUIET_DIR, {
+    recursive: true,
+  });
+  const wrapper = join(GLIMPSE_QUIET_DIR, "glimpse-quiet");
+  // One log per launch, overwritten: the diagnostic is worth keeping, an
+  // unbounded log is not.
+  writeFileSync(
+    wrapper,
+    buildGlimpseWrapper(binary, join(GLIMPSE_QUIET_DIR, "glimpse-stderr.log")),
+  );
+  chmodSync(wrapper, 0o755);
+  return wrapper;
+}
+
+/**
+ * The override lives only while the window is being started: every other extension
+ * and every later launch keeps the environment it had.
+ */
+export function wrapGlimpseBinary(
+  module: GlimpseModule,
+  wrapper: string | null,
+): GlimpseModule {
+  if (!wrapper) return module;
+  return {
+    ...module,
+    open(html, options) {
+      const previous = process.env.GLIMPSE_BINARY_PATH;
+      process.env.GLIMPSE_BINARY_PATH = wrapper;
+      try {
+        return module.open(html, options);
+      } finally {
+        if (previous === undefined) delete process.env.GLIMPSE_BINARY_PATH;
+        else process.env.GLIMPSE_BINARY_PATH = previous;
+      }
+    },
+  };
+}
+
+/** The module's own file path, so the wrapper can point at the binary it ships with. */
+function resolvedModulePath(specifier: string): string | undefined {
+  try {
+    const url = import.meta.resolve(specifier);
+    return url.startsWith("file:") ? fileURLToPath(url) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function loadGlimpse(modulePath?: string): Promise<GlimpseModule | null> {
   const candidates = modulePath
     ? [
@@ -973,7 +1047,11 @@ export async function loadGlimpse(modulePath?: string): Promise<GlimpseModule | 
       const imported = await import(
         candidate.startsWith("/") ? pathToFileURL(candidate).href : candidate
       );
-      if (typeof imported.open === "function") return imported as GlimpseModule;
+      if (typeof imported.open === "function")
+        return wrapGlimpseBinary(
+          imported as GlimpseModule,
+          quietGlimpseBinary(resolvedModulePath(candidate)),
+        );
     } catch {
       // Optional UI dependency: callers provide a text fallback when unavailable.
     }
