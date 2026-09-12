@@ -850,7 +850,10 @@ ${choiceMarkup}
   // dragstart handler still holds if the stylesheet is ever regenerated without them.
   image.addEventListener("dragstart", (event) => event.preventDefault());
   stage.addEventListener("pointermove", (event) => { if (!start) return; const end = sourcePoint(event); dragged = true; regionTouched = true; clearPick(); fields.x.value = String(Math.round(Math.min(start.x, end.x))); fields.y.value = String(Math.round(Math.min(start.y, end.y))); fields.width.value = String(Math.round(Math.abs(end.x - start.x))); fields.height.value = String(Math.round(Math.abs(end.y - start.y))); updateSelection(); });
-  stage.addEventListener("pointerup", () => { start = null; });
+  // A press that does not move is a pick, not a drag, and it has to be resolved here:
+  // the stage captures the pointer on pointerdown, and a captured pointer retargets
+  // the click event to the capturing element — so the hotspot's own click listener never fires.
+  stage.addEventListener("pointerup", (event) => { const began = start; start = null; if (!began) return; const end = sourcePoint(event); if (Math.abs(end.x - began.x) > 4 || Math.abs(end.y - began.y) > 4) return; const node = document.elementFromPoint(event.clientX, event.clientY); const hotspot = node && node.closest ? node.closest("[data-hotspot]") : null; if (hotspot) pick(Number(hotspot.dataset.hotspot)); });
   for (const node of document.querySelectorAll("[data-hotspot]")) {
     node.addEventListener("pointerenter", () => showLabel(Number(node.dataset.hotspot)));
     node.addEventListener("pointerleave", hideLabel);
