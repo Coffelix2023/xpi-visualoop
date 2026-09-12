@@ -81,6 +81,7 @@ Chrome 不在默认位置(macOS 的 `/Applications`,或 `PATH` 上的 `google-ch
 
 
 评审面板是一个 Glimpse 窗口(`glimpseui`)。它是可选的:未安装时评审降级为整张截图的文字反馈。面板固定文案跟随会话语言,除非工具调用显式声明 `language`;你传的问题、选项与标签一律原样呈现,不会被翻译。
+
 ### 从 `harnessPath` 迁移
 
 旧版本调用单独安装的 `browser-harness` 可执行程序。该后端已删除,`harnessPath` 现在是**破坏性变更**,不是「废弃键」。仍带该键的配置会被拒绝启动,并返回迁移提示。
