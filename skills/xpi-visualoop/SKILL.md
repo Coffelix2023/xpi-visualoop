@@ -39,9 +39,20 @@ so mention it when you use them.
 **3. `visual_feedback` — optional, only when a human answer actually helps.**
 
 `{ "captureId": "..." }` or `{ "comparisonId": "..." }`, exactly one.
-Opens a panel over the image: the user drags a region and comments, or accepts, or
-cancels. Returns one explicit result — `submitted`, `accepted`, `cancelled`, or
-`unavailable`. Treat `cancelled` and `unavailable` as "no feedback", never as approval.
+Opens a panel over the image: the user picks an element or drags a region and
+comments, or accepts, or cancels. Returns one explicit result — `submitted`,
+`accepted`, `chosen`, `cancelled`, `suppressed`, or `unavailable`. Treat
+`cancelled`, `suppressed`, and `unavailable` as "no feedback", never as approval.
+
+Add `question` (at most 200 characters) and `options` (2 to 4, each at most 40) to
+ask one question instead of asking for markup: the answer comes back as a
+structured `choice`, and a region and comment stay optional. Pass them together or
+not at all. `labels` on a comparison name its two sides in the panel.
+
+When the user cancels, the panel asks in the same window whether to reopen, skip
+this step, or stop asking for this inspection. A `suppressForRound` answer makes
+later `visual_feedback` calls in the same inspection return `suppressed` without
+opening a panel, so do not retry them this round.
 
 **4. `visual_verify` — prove the change did what you claim.**
 

@@ -41,13 +41,14 @@ describe("visual loop skill", () => {
     expect(frontmatter["disable-model-invocation"]).toBeUndefined();
   });
 
-  it("names all four tools in the body", async () => {
+  it("names every tool in the body", async () => {
     const text = await readFile(skillUrl, "utf8");
     for (const tool of [
       "visual_prepare",
       "visual_capture",
       "visual_feedback",
       "visual_verify",
+      "visual_compare",
     ])
       expect(text).toContain(tool);
   });
