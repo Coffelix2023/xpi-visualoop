@@ -3,7 +3,10 @@ import { isAbsolute, resolve } from "node:path";
 import {
   CDP_CONNECT_TIMEOUT_MS,
   DEFAULT_CDP_URL,
+  DEFAULT_LAUNCH_FORM,
   ensureEndpoint,
+  LAUNCH_FORMS,
+  type LaunchForm,
   probeEndpoint,
   withDeadline,
 } from "./chrome.ts";
@@ -11,6 +14,8 @@ import {
 export interface VisualLoopConfig {
   cdpUrl: string;
   glimpseModulePath?: string;
+  /** How the extension starts its own browser when nothing listens yet. */
+  launch: LaunchForm;
 }
 
 interface PartialVisualLoopConfig {
@@ -18,6 +23,7 @@ interface PartialVisualLoopConfig {
   glimpseModulePath?: string;
   /** Legacy external backend path; rejected with a migration hint. */
   harnessPath?: unknown;
+  launch?: LaunchForm;
 }
 
 export interface ConfigLoadResult {
@@ -28,6 +34,7 @@ export interface ConfigLoadResult {
 const CONFIG_KEYS = new Set([
   "cdpUrl",
   "glimpseModulePath",
+  "launch",
 ]);
 const REMOVED_KEYS = new Set([
   "harnessPath",
@@ -89,6 +96,18 @@ export function validateLocalPageUrl(value: unknown): string {
   return url.toString();
 }
 
+/**
+ * Launch form validation. An unknown value is refused rather than folded into
+ * the default: a typo must not silently change how the browser appears.
+ */
+function validateLaunchForm(value: unknown): LaunchForm {
+  const match =
+    typeof value === "string" ? LAUNCH_FORMS.find((form) => form === value) : undefined;
+  if (match === undefined)
+    throw new Error(`launch must be one of: ${LAUNCH_FORMS.join(", ")}`);
+  return match;
+}
+
 function parsePartial(value: unknown, source: string): PartialVisualLoopConfig {
   const record = objectRecord(value, source);
   for (const key of Object.keys(record)) {
@@ -98,6 +117,7 @@ function parsePartial(value: unknown, source: string): PartialVisualLoopConfig {
   }
   const result: PartialVisualLoopConfig = {};
   if ("cdpUrl" in record) result.cdpUrl = validateEndpoint(record.cdpUrl);
+  if ("launch" in record) result.launch = validateLaunchForm(record.launch);
   if ("glimpseModulePath" in record) {
     if (
       typeof record.glimpseModulePath !== "string" ||
@@ -180,6 +200,7 @@ export async function loadConfig(
     return {
       config: {
         cdpUrl: DEFAULT_CDP_URL,
+        launch: merged.launch ?? DEFAULT_LAUNCH_FORM,
       },
       diagnostics,
     };
@@ -187,11 +208,7 @@ export async function loadConfig(
   return {
     config: {
       cdpUrl: merged.cdpUrl,
-      ...(merged.glimpseModulePath
-        ? {
-            glimpseModulePath: merged.glimpseModulePath,
-          }
-        : {}),
+      launch: merged.launch ?? DEFAULT_LAUNCH_FORM,
       ...(merged.glimpseModulePath
         ? {
             glimpseModulePath: merged.glimpseModulePath,
@@ -252,6 +269,7 @@ export async function resolveCdpWebSocketUrl(
  */
 export async function validateEndpointReachability(
   cdpUrl: string,
+  launch: LaunchForm,
   signal?: AbortSignal,
 ): Promise<void> {
   // Discovery and the probe ask the same question, so they share one budget: a
@@ -267,7 +285,7 @@ export async function validateEndpointReachability(
     // answers it; starting our own browser on that port cannot help.
     if (preflight.aborted) throw error;
     if (await probeEndpoint(cdpUrl, preflight)) throw error;
-    await ensureEndpoint(cdpUrl, signal);
+    await ensureEndpoint(cdpUrl, launch, signal);
     try {
       await resolveCdpWebSocketUrl(cdpUrl, signal);
     } catch {

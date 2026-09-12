@@ -19,6 +19,47 @@ export const DEFAULT_CDP_URL = "http://127.0.0.1:9333/";
 /** Absolute-path override, e.g. a Chromium build outside the two default locations. */
 export const CHROME_BINARY_ENV = "XPI_VISUALOOP_CHROME";
 
+/**
+ * How the extension starts its own browser. Declared by configuration and
+ * reported back to the caller, because it decides whether the user can reach
+ * the page by hand.
+ */
+export const LAUNCH_FORMS = [
+  "headless",
+  "minimized",
+  "windowed",
+] as const;
+export type LaunchForm = (typeof LAUNCH_FORMS)[number];
+
+/** Never interrupt the user's foreground work unless they ask for it. */
+export const DEFAULT_LAUNCH_FORM: LaunchForm = "minimized";
+
+/**
+ * Flags that keep a headed window rendering while it is covered or
+ * minimized. Without them Chrome backgrounds the page, throttles it, and a
+ * capture can read a stale frame or never settle at all.
+ */
+const HEADED_RENDERING_FLAGS = [
+  "--disable-backgrounding-occluded-windows",
+  "--disable-renderer-backgrounding",
+  "--disable-features=CalculateNativeWinOcclusion",
+];
+
+/**
+ * Launch arguments for one form. The window state is not a flag: the headed
+ * forms start visible, and `minimized` is applied over CDP once the endpoint
+ * answers, so a browser that refuses the call still reports its state honestly.
+ */
+export function launchArguments(form: LaunchForm): string[] {
+  if (form === "headless")
+    return [
+      "--headless=new",
+    ];
+  return [
+    ...HEADED_RENDERING_FLAGS,
+  ];
+}
+
 const PROFILE_DIRECTORY = ".cache/xpi-visualoop/chrome-profile";
 const READY_POLL_MS = 150;
 const READY_TIMEOUT_MS = 10_000;
@@ -56,10 +97,18 @@ interface OwnedChrome {
 let owned: OwnedChrome | undefined;
 let exitHookRegistered = false;
 
+/**
+ * Common install locations per platform, most-likely first. Any Chromium
+ * build that speaks CDP works, so this is a convenience list, not a vendor
+ * list: a browser outside it is named with the environment override.
+ */
 function darwinCandidates(): string[] {
   return [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    "/Applications/Arc.app/Contents/MacOS/Arc",
   ];
 }
 
@@ -69,6 +118,8 @@ function linuxCandidates(): string[] {
     "google-chrome-stable",
     "chromium",
     "chromium-browser",
+    "microsoft-edge",
+    "brave-browser",
   ];
 }
 
@@ -174,12 +225,23 @@ function reapOnExit(): void {
 }
 
 /**
+ * Both recovery steps for "no browser" are the caller's to take: name a
+ * binary, or start one on the configured endpoint. The message says so
+ * explicitly because there is no silent substitute: the extension never
+ * reaches for a different browser, a daily profile, or a cloud service.
+ */
+export function noBrowserMessage(cdpUrl: string): string {
+  return `no Chromium-based browser was found; set ${CHROME_BINARY_ENV} to the browser executable path, or start one yourself with --remote-debugging-port=${endpointPort(cdpUrl)} --user-data-dir=${chromeProfileDirectory()} ${cdpUrl}`;
+}
+
+/**
  * Start the extension-owned browser when nothing is listening on `cdpUrl`.
  * Throws with an actionable message when no binary exists or the browser dies
  * before it exposes the endpoint.
  */
 export async function ensureEndpoint(
   cdpUrl: string,
+  launch: LaunchForm,
   signal?: AbortSignal,
 ): Promise<void> {
   if (owned && owned.cdpUrl === cdpUrl && owned.process.exitCode === null) {
@@ -190,15 +252,13 @@ export async function ensureEndpoint(
   }
 
   const binary = resolveChromeBinary();
-  if (!binary)
-    throw new Error(
-      `no Chrome or Chromium binary was found; set ${CHROME_BINARY_ENV} to the browser executable, or start one yourself on ${cdpUrl}`,
-    );
+  if (!binary) throw new Error(noBrowserMessage(cdpUrl));
 
   const port = endpointPort(cdpUrl);
   const child = spawn(
     binary,
     [
+      ...launchArguments(launch),
       `--remote-debugging-port=${port}`,
       `--user-data-dir=${chromeProfileDirectory()}`,
       "--no-first-run",
@@ -246,4 +306,64 @@ export function stopOwnedChrome(): void {
   const child = owned?.process;
   owned = undefined;
   child?.kill();
+}
+
+/**
+ * True when this process started the browser behind `cdpUrl` and it still runs.
+ * An endpoint somebody else started is used as-is: its window is theirs, not
+ * something this extension may move around.
+ */
+export function ownsEndpoint(cdpUrl: string): boolean {
+  return (
+    owned !== undefined && owned.cdpUrl === cdpUrl && owned.process.exitCode === null
+  );
+}
+
+/**
+ * The window state the extension put the browser into, or `unknown` when it
+ * did not decide one: a form that never minimizes, a browser it did not
+ * start, or a browser that refused the call. `unknown` is a real answer, so a
+ * caller never reads a failed minimization as a completed one.
+ */
+export type WindowState = "minimized" | "unknown";
+
+/** The browser-level commands `minimizeOwnedWindow` needs; `CdpClient` fits. */
+export interface WindowCommandClient {
+  send(method: string, params?: Record<string, unknown>): Promise<unknown>;
+}
+
+/**
+ * Minimize the window that owns `targetId`. The two calls are browser-level
+ * commands, so they carry no page session. A missing window, a refusal, or a
+ * silent endpoint must not fail preparation; every such case reads back as
+ * `unknown`.
+ */
+export async function minimizeOwnedWindow(
+  browser: WindowCommandClient,
+  targetId: string,
+): Promise<WindowState> {
+  if (targetId === "") return "unknown";
+  try {
+    const window = await browser.send("Browser.getWindowForTarget", {
+      targetId,
+    });
+    const windowId =
+      typeof window === "object" && window !== null
+        ? (
+            window as {
+              windowId?: unknown;
+            }
+          ).windowId
+        : undefined;
+    if (typeof windowId !== "number") return "unknown";
+    await browser.send("Browser.setWindowBounds", {
+      bounds: {
+        windowState: "minimized",
+      },
+      windowId,
+    });
+    return "minimized";
+  } catch {
+    return "unknown";
+  }
 }

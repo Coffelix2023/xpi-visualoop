@@ -14,6 +14,12 @@ import {
   prepareOwnedPage,
 } from "./cdp-actions.ts";
 import {
+  type LaunchForm,
+  minimizeOwnedWindow,
+  ownsEndpoint,
+  type WindowState,
+} from "./chrome.ts";
+import {
   loadConfig,
   type VisualLoopConfig,
   validateEndpointReachability,
@@ -58,6 +64,7 @@ export interface InspectionContextStatus {
   pageUrl?: string;
   state: "disconnected" | "ready" | "busy";
   targetId?: string;
+  windowState?: WindowState;
 }
 
 interface ActiveInspection {
@@ -81,6 +88,11 @@ interface ActiveInspection {
   queue: Promise<void>;
   stateLabel?: string;
   targetId: string;
+  /**
+   * Decided once per inspection: a second prepare must not pull a window the
+   * user brought forward back out from under them.
+   */
+  windowState?: WindowState;
 }
 
 const DEFAULT_DPR = 1;
@@ -296,6 +308,16 @@ async function createComparisonArtifact(
 export class VisualLoopManager {
   private active?: ActiveInspection;
   private epoch = 0;
+  private readonly startedBrowser: (cdpUrl: string) => boolean;
+
+  /**
+   * `startedBrowser` answers whether this process launched the browser behind
+   * an endpoint. Production reads the launcher; tests inject it because a
+   * fixture endpoint was never spawned by this module.
+   */
+  constructor(startedBrowser: (cdpUrl: string) => boolean = ownsEndpoint) {
+    this.startedBrowser = startedBrowser;
+  }
 
   async prepare(
     ctx: ExtensionContext,
@@ -305,6 +327,8 @@ export class VisualLoopManager {
     epoch: number;
     result: CdpPrepareResult;
     stateLabel?: string;
+    windowState: WindowState;
+    launch: LaunchForm;
   }> {
     const request = normalizePrepareInput(input);
     const signal = operationSignal ?? ctx.signal;
@@ -321,7 +345,7 @@ export class VisualLoopManager {
     return this.serial(active, signal, async (operationSignal) => {
       if (epoch !== this.epoch || this.active !== active)
         throw new Error("visual loop session changed");
-      await validateEndpointReachability(config.cdpUrl, operationSignal);
+      await validateEndpointReachability(config.cdpUrl, config.launch, operationSignal);
       const hadTarget = active.targetId !== "";
       const result = await prepareOwnedPage(
         active.cdp,
@@ -340,12 +364,32 @@ export class VisualLoopManager {
       active.targetId = result.targetId;
       active.page = result.page;
       active.stateLabel = request.stateLabel;
+      const windowState = await this.quietWindow(active, result.targetId);
+      active.windowState = windowState;
       return {
         epoch,
         result,
         stateLabel: request.stateLabel,
+        windowState,
+        launch: active.config.launch,
       };
     });
+  }
+
+  /**
+   * Put the window into the configured form once. Only a browser this process
+   * started is moved: an endpoint somebody else started keeps its window, and
+   * a form that never minimizes has no window state to report.
+   */
+  private async quietWindow(
+    active: ActiveInspection,
+    targetId: string,
+  ): Promise<WindowState> {
+    const decided = active.windowState;
+    if (decided !== undefined) return decided;
+    if (active.config.launch !== "minimized") return "unknown";
+    if (!this.startedBrowser(active.config.cdpUrl)) return "unknown";
+    return minimizeOwnedWindow(active.cdp, targetId);
   }
 
   async capture(
@@ -363,7 +407,11 @@ export class VisualLoopManager {
     return this.serial(active, signal, async (captureSignal) => {
       if (epoch !== this.epoch || this.active !== active)
         throw new Error("visual loop session changed");
-      await validateEndpointReachability(active.config.cdpUrl, captureSignal);
+      await validateEndpointReachability(
+        active.config.cdpUrl,
+        active.config.launch,
+        captureSignal,
+      );
       const captureId = id("capture");
       const imagePath = join(active.evidenceDir, `${captureId}.png`);
       const targetImagePath = join(active.evidenceDir, `${captureId}.target.png`);
@@ -766,6 +814,7 @@ export class VisualLoopManager {
       pageUrl: this.active.page?.url,
       state: this.active.busy ? "busy" : "ready",
       targetId: this.active.targetId,
+      windowState: this.active.windowState,
     };
   }
 
@@ -816,7 +865,7 @@ export class VisualLoopManager {
       // A cold start has nothing listening yet, and `cdp.connect` only reads an
       // endpoint that already exists. Reachability is also the one step that may
       // start the extension-owned browser, so it has to run first.
-      await validateEndpointReachability(config.cdpUrl, signal);
+      await validateEndpointReachability(config.cdpUrl, config.launch, signal);
       await cdp.connect(config.cdpUrl, signal);
       await mkdir(LOCK_DIR, {
         mode: 0o700,
@@ -890,12 +939,53 @@ export class VisualLoopManager {
   }
 }
 
+/**
+ * What the caller may assume about reaching a page by hand. The launch form
+ * decides it, the window state refines it, and the text is what the model
+ * reads before it asks the user to interact: a headless context must never be
+ * described as something the user can see or touch, and a minimized one must
+ * not be described as if the window were in the foreground.
+ */
+export function describeLaunch(
+  launch: LaunchForm,
+  windowState?: WindowState,
+): {
+  interaction: string;
+  launch: LaunchForm;
+  userOperable: boolean;
+} {
+  if (launch === "headless")
+    return {
+      interaction:
+        "this browser runs headless: the page is not visible and the user cannot reach it, so a verification that needs the user to change the page by hand cannot be completed here",
+      launch,
+      userOperable: false,
+    };
+  if (launch === "minimized")
+    return {
+      interaction:
+        windowState === "minimized"
+          ? "the browser window is minimized: bring it back from the Dock (macOS) or the taskbar to see the page and change its interaction state by hand, then capture again"
+          : "the browser window state is unknown: the extension could not confirm minimization, so bring the window to the front before relying on what the user sees",
+      launch,
+      userOperable: true,
+    };
+  return {
+    interaction:
+      "the browser window is visible: the user can see the page and operate it directly",
+    launch,
+    userOperable: true,
+  };
+}
+
 export function formatPrepareResult(
   inspectionId: string | undefined,
   prepared: {
     epoch: number;
     result: CdpPrepareResult;
     stateLabel?: string;
+    windowState?: WindowState;
+    launch: LaunchForm;
   },
 ): string {
   const value = {
@@ -905,6 +995,8 @@ export function formatPrepareResult(
     page: prepared.result.page,
     stateLabel: prepared.stateLabel,
     targetId: prepared.result.targetId,
+    windowState: prepared.windowState,
+    ...describeLaunch(prepared.launch, prepared.windowState),
   };
   return JSON.stringify(value);
 }
