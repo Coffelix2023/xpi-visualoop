@@ -116,6 +116,23 @@ The user chose not to be asked again this inspection round, so no panel was open
 
    修复后在 `pointerup` 做命中测试决定点选，位移超过 4 像素仍判为拖动，因此从热点上开始的拖动照旧画框。回归测试 `tests/visual-loop-panel-events.test.ts` 在 fixture DOM 上执行真实面板脚本并驱动浏览器同样的指针序列：未修复版本 2 个用例失败，修复后通过。
 
+## 面板宿主 stderr 污染编辑器（独立修复 `3145155`）
+
+每一轮面板操作中偶发出现的日志行 `glimpse[PID:…] error messaging the mach port for IMKCFRunLoopWakeUpReliable` 不是本扩展的业务错误，而是 macOS InputMethodKit 由 Glimpse 原生窗口进程写入 **stderr** 的噪声：`glimpseui` 用 `stdio: ["pipe", "pipe", "inherit"]` 启动宿主进程，stderr 继承自 Pi 主进程，于是这行日志写进 TUI、盖住用户输入编辑器。
+
+修法（与 `xpi-model-cfg` 同源，不修改 `node_modules/glimpseui`，依赖升级不会丢失）：
+
+- 首次加载 Glimpse 模块时，用 `import.meta.resolve` 拿到模块自身路径，取同级 `glimpse` 原生二进制，生成一行包装脚本 `exec <real> "$@" 2><log>`。
+- 只在 `open()` 期间设置 `GLIMPSE_BINARY_PATH` 指向包装脚本，调用结束（正常或抛错）立即恢复原值，避免影响其他扩展与后续窗口。
+- 调用方自己声明的 `GLIMPSE_BINARY_PATH` / `GLIMPSE_HOST_PATH` 优先，不覆盖；只在 macOS 生效（同一 override 会翻转 `glimpseui` 的 `supportsOpenLinks` 判定，对 Linux 宿主不成立）；模块旁没有原生二进制时（Linux/Chromium 后端）不做处理。
+- 日志每次启动覆盖写，保留诊断但不会无限增长。
+
+验证：
+
+- 真实 shell 实测：包装脚本运行后调用方 stderr 为 `0` 字节，宿主 stderr 落入日志文件，参数照常透传。
+- 真机路径核对：模块同级二进制存在（`~/.pi/agent/npm/node_modules/glimpseui/src/glimpse`），生成的包装脚本为 `0755` 且指向该二进制。
+- 单测 4 条（`tests/visual-loop-feedback.test.ts`）：包装脚本内容、`open()` 期间设置与环境恢复（含抛错路径与既有值保留）、无可静默对象时返回 `null`、真实临时模块生成可执行包装脚本。测试总数因此由 141 增至 145。
+
 ## 9.4 门禁
 
 在全部改动落地后执行：
@@ -124,9 +141,10 @@ The user chose not to be asked again this inspection round, so no panel was open
 pnpm typecheck   → 通过
 pnpm -w run lint → 0 errors、0 warnings、5 infos（与变更前基线一致）
 pnpm test        → 18 passed | 2 skipped（测试 141 passed | 6 skipped）
+再跑一次（含面板宿主 stderr 修复与新增 4 条单测）→ 145 passed | 6 skipped
 ```
 
-测试数由变更前的 133 passed（6 skipped）增加到 141 passed（6 skipped）。
+测试数由变更前的 133 passed（6 skipped）增加到 145 passed（6 skipped）。
 
 ## 9.5 文档同步
 
