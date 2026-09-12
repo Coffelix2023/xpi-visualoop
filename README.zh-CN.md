@@ -79,7 +79,6 @@ Linux 上换成你发行版的 Chrome 或 Chromium 可执行文件,参数相同�
 
 Chrome 不在默认位置(macOS 的 `/Applications`,或 `PATH` 上的 `google-chrome` / `chromium`)时,把 `XPI_VISUALOOP_CHROME` 设成浏览器的绝对路径。
 
-
 评审面板是一个 Glimpse 窗口(`glimpseui`)。它是可选的:未安装时评审降级为整张截图的文字反馈。面板固定文案跟随会话语言,除非工具调用显式声明 `language`;你传的问题、选项与标签一律原样呈现,不会被翻译。
 
 ### 从 `harnessPath` 迁移
