@@ -132,6 +132,13 @@ The user chose not to be asked again this inspection round, so no panel was open
 - 真实 shell 实测：包装脚本运行后调用方 stderr 为 `0` 字节，宿主 stderr 落入日志文件，参数照常透传。
 - 真机路径核对：模块同级二进制存在（`~/.pi/agent/npm/node_modules/glimpseui/src/glimpse`），生成的包装脚本为 `0755` 且指向该二进制。
 - 单测 4 条（`tests/visual-loop-feedback.test.ts`）：包装脚本内容、`open()` 期间设置与环境恢复（含抛错路径与既有值保留）、无可静默对象时返回 `null`、真实临时模块生成可执行包装脚本。测试总数因此由 141 增至 145。
+- 现场实证：`/reload` 后开一次面板，包装脚本于 08:35 重新生成，宿主噪声于 08:36:12 落入 `$TMPDIR/xpi-visualoop-glimpse/glimpse-stderr.log`（107 字节）：
+
+  ```text
+  2026-09-12 08:36:12.639 glimpse[31330:126706] error messaging the mach port for IMKCFRunLoopWakeUpReliable
+  ```
+
+  同一时刻 Pi 输入框未再出现该行（人工确认），即原先写进 TUI 的 stderr 已被改道。
 
 ## 9.4 门禁
 
