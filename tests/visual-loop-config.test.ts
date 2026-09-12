@@ -56,6 +56,80 @@ describe("visual loop config validation", () => {
     );
   });
 
+  it("accepts the three launch forms and refuses everything else", () => {
+    for (const launch of [
+      "minimized",
+      "headless",
+      "windowed",
+    ] as const) {
+      expect(
+        parseConfigText(
+          JSON.stringify({
+            cdpUrl: "http://127.0.0.1:9333",
+            launch,
+          }),
+          "test",
+        ).launch,
+      ).toBe(launch);
+    }
+    for (const launch of [
+      "headless=new",
+      "Minimized",
+      true,
+      2,
+      null,
+    ]) {
+      expect(() =>
+        parseConfigText(
+          JSON.stringify({
+            cdpUrl: "http://127.0.0.1:9333",
+            launch,
+          }),
+          "test",
+        ),
+      ).toThrow("launch must be one of: headless, minimized, windowed");
+    }
+  });
+
+  it("still refuses unknown fields next to a valid launch form", () => {
+    expect(() =>
+      parseConfigText('{"launch":"minimized","launchMode":"headless"}', "test"),
+    ).toThrow("unknown field");
+  });
+
+  it("defaults the launch form without disturbing the other keys", async () => {
+    const agentDir = await tempDirectory();
+    const cwd = await tempDirectory();
+    expect((await loadConfig(agentDir, cwd, true)).config).toEqual({
+      cdpUrl: DEFAULT_CDP_URL,
+      launch: "minimized",
+    });
+
+    await writeFile(
+      join(agentDir, "xpi-visualoop.json"),
+      JSON.stringify({
+        cdpUrl: "http://127.0.0.1:9333",
+        glimpseModulePath: "/opt/glimpse/pane.js",
+      }),
+    );
+    expect((await loadConfig(agentDir, cwd, true)).config).toEqual({
+      cdpUrl: "http://127.0.0.1:9333/",
+      glimpseModulePath: "/opt/glimpse/pane.js",
+      launch: "minimized",
+    });
+
+    await writeFile(
+      join(agentDir, "xpi-visualoop.json"),
+      JSON.stringify({
+        cdpUrl: "http://127.0.0.1:9333",
+        launch: "headless",
+      }),
+    );
+    expect((await loadConfig(agentDir, cwd, true)).config).toEqual({
+      cdpUrl: "http://127.0.0.1:9333/",
+      launch: "headless",
+    });
+  });
   it("names the migration for the legacy backend path", () => {
     expect(HARNESS_MIGRATION_HINT).toContain("harnessPath has been removed");
     expect(HARNESS_MIGRATION_HINT).toContain("delete the harnessPath key");

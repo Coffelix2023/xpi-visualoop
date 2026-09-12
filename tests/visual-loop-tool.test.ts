@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Compile } from "typebox/compile";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import xpiVisualoop, {
   CaptureParameters,
   CompareParameters,
@@ -22,10 +22,15 @@ import xpiVisualoop, {
   VerifyParameters,
   verifyContent,
 } from "../src/index.ts";
-import type { VisualLoopManager } from "../src/visual-loop/context.ts";
+import type { LaunchForm, WindowState } from "../src/visual-loop/chrome.ts";
+import { describeLaunch, VisualLoopManager } from "../src/visual-loop/context.ts";
 import type { Capture, Comparison } from "../src/visual-loop/evidence.ts";
 
 const roots: string[] = [];
+
+/** What a headless context must say, and what a minimized one must not claim. */
+const INVISIBLE_PAGE = /not visible/;
+const FOREGROUND_CLAIM = /foreground|in front|has focus/i;
 
 afterEach(async () => {
   await Promise.all(
@@ -839,5 +844,108 @@ describe("visual compare tool output", () => {
   it("fails loudly over budget instead of delivering a single side", async () => {
     const { result } = await compareFixture(MAX_VERIFY_IMAGE_BYTES / 2 + 1);
     await expect(compareContent(result)).rejects.toThrow("byte budget");
+  });
+});
+
+describe("launch declaration in the prepare result", () => {
+  interface PreparePayload {
+    interaction: string;
+    launch: string;
+    userOperable: boolean;
+    windowState?: string;
+  }
+
+  async function preparePayload(
+    launch: LaunchForm,
+    windowState: WindowState,
+  ): Promise<PreparePayload> {
+    const tools = new Map<
+      string,
+      {
+        execute: (...args: unknown[]) => Promise<{
+          content: Array<{
+            text: string;
+          }>;
+        }>;
+      }
+    >();
+    xpiVisualoop({
+      on() {},
+      registerCommand() {},
+      registerTool(tool: unknown) {
+        const registered = tool as {
+          name: string;
+        };
+        tools.set(registered.name, tool as never);
+      },
+    } as unknown as ExtensionAPI);
+    const spy = vi.spyOn(VisualLoopManager.prototype, "prepare").mockResolvedValue({
+      epoch: 1,
+      launch,
+      result: {
+        dpr: 1,
+        targetId: "target-1",
+        page: {
+          h: 600,
+          ph: 600,
+          pw: 800,
+          sx: 0,
+          sy: 0,
+          title: "Page",
+          url: "http://127.0.0.1:8765/",
+          w: 800,
+        },
+      },
+      windowState,
+    });
+    try {
+      const response = await tools.get("visual_prepare")?.execute(
+        "prepare-call",
+        {
+          url: "http://127.0.0.1:8765/",
+        },
+        undefined,
+        undefined,
+        {
+          cwd: "/tmp",
+          signal: new AbortController().signal,
+          isProjectTrusted: () => true,
+        },
+      );
+      return JSON.parse(String(response?.content[0]?.text)) as PreparePayload;
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  it("reports the launch form and whether the user can operate the page", async () => {
+    const headless = await preparePayload("headless", "unknown");
+    expect(headless.launch).toBe("headless");
+    expect(headless.userOperable).toBe(false);
+    expect(headless.interaction).toMatch(INVISIBLE_PAGE);
+
+    const minimized = await preparePayload("minimized", "minimized");
+    expect(minimized.launch).toBe("minimized");
+    expect(minimized.userOperable).toBe(true);
+    expect(minimized.windowState).toBe("minimized");
+    // The two forms must not read as the same context.
+    expect(minimized.interaction).not.toBe(headless.interaction);
+
+    const windowed = await preparePayload("windowed", "unknown");
+    expect(windowed.userOperable).toBe(true);
+    expect(windowed.interaction).not.toBe(minimized.interaction);
+  });
+
+  it("routes a minimized window back to the user without claiming it is in front", () => {
+    const minimized = describeLaunch("minimized", "minimized");
+    expect(minimized.interaction).toContain("minimized");
+    expect(minimized.interaction).toContain("Dock");
+    expect(minimized.interaction).toContain("taskbar");
+    expect(minimized.interaction).not.toMatch(FOREGROUND_CLAIM);
+
+    // An unconfirmed minimization must not be described as one.
+    const unknown = describeLaunch("minimized", "unknown");
+    expect(unknown.interaction).toContain("unknown");
+    expect(unknown.interaction).not.toContain("window is minimized");
   });
 });

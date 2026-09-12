@@ -1,8 +1,10 @@
+import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { VisualLoopManager } from "../src/visual-loop/context.ts";
+import { noBrowserMessage } from "../src/visual-loop/chrome.ts";
+import { endpointLockPath, VisualLoopManager } from "../src/visual-loop/context.ts";
 import { type FakeCdpEndpoint, fakeCdp, fakePage } from "./helpers/fake-cdp.ts";
 
 const roots: string[] = [];
@@ -32,10 +34,14 @@ async function project(cdpUrl: string): Promise<string> {
   return cwd;
 }
 
-async function managed(create: () => Promise<FakeCdpEndpoint>) {
+async function managed(
+  create: () => Promise<FakeCdpEndpoint>,
+  /** Whether the extension started the browser behind the fixture endpoint. */
+  startedBrowser: (cdpUrl: string) => boolean = () => false,
+) {
   const endpoint = await create();
   endpoints.push(endpoint);
-  const manager = new VisualLoopManager();
+  const manager = new VisualLoopManager(startedBrowser);
   managers.push(manager);
   const ctx = context(await project(endpoint.cdpUrl));
   return {
@@ -86,7 +92,7 @@ describe("CDP connection lifecycle", () => {
       manager.prepare(ctx, {
         url: "http://127.0.0.1:8765/",
       }),
-    ).rejects.toThrow("no Chrome or Chromium binary was found");
+    ).rejects.toThrow(noBrowserMessage("http://127.0.0.1:9/"));
     expect(manager.status()).toEqual({
       state: "disconnected",
     });
@@ -267,5 +273,156 @@ describe("CDP resource release", () => {
     });
     expect(manager.status().state).toBe("ready");
     expect(endpoint.connectHits).toBe(2);
+  });
+});
+
+/** Wait out the server side of a client-initiated close, then report it. */
+async function settledSockets(endpoint: FakeCdpEndpoint): Promise<number> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (endpoint.openSockets() === 0) break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return endpoint.openSockets();
+}
+
+describe("quiet launch window state", () => {
+  it("minimizes the window of a browser it started", async () => {
+    const { ctx, endpoint, manager } = await managed(
+      () => fakePage(),
+      () => true,
+    );
+    const prepared = await manager.prepare(ctx, {
+      url: "http://127.0.0.1:8765/",
+    });
+    expect(prepared.windowState).toBe("minimized");
+    expect(manager.status().windowState).toBe("minimized");
+    expect(endpoint.requests).toContainEqual({
+      id: expect.any(Number),
+      method: "Browser.getWindowForTarget",
+      params: {
+        targetId: "target-1",
+      },
+    });
+    expect(endpoint.requests).toContainEqual({
+      id: expect.any(Number),
+      method: "Browser.setWindowBounds",
+      params: {
+        windowId: 1,
+        bounds: {
+          windowState: "minimized",
+        },
+      },
+    });
+  });
+
+  it("decides the window state once, so a reload does not pull the window back", async () => {
+    const { ctx, endpoint, manager } = await managed(
+      () => fakePage(),
+      () => true,
+    );
+    await manager.prepare(ctx, {
+      url: "http://127.0.0.1:8765/",
+    });
+    const windowCalls = endpoint.requests.filter((request) =>
+      request.method.startsWith("Browser."),
+    ).length;
+    await manager.prepare(ctx, {
+      url: "http://127.0.0.1:8765/next",
+    });
+    expect(
+      endpoint.requests.filter((request) => request.method.startsWith("Browser."))
+        .length,
+    ).toBe(windowCalls);
+  });
+
+  it("still prepares and reports an unknown window state when there is no window", async () => {
+    const { ctx, manager } = await managed(
+      () =>
+        fakePage({
+          windowUnavailable: true,
+        }),
+      () => true,
+    );
+    const prepared = await manager.prepare(ctx, {
+      url: "http://127.0.0.1:8765/",
+    });
+    expect(prepared.result.targetId).toBe("target-1");
+    expect(prepared.windowState).toBe("unknown");
+    expect(manager.status()).toMatchObject({
+      state: "ready",
+      windowState: "unknown",
+    });
+  });
+
+  it("leaves an endpoint it did not start alone", async () => {
+    const { ctx, endpoint, manager } = await managed(() => fakePage());
+    const prepared = await manager.prepare(ctx, {
+      url: "http://127.0.0.1:8765/",
+    });
+    expect(prepared.windowState).toBe("unknown");
+    expect(
+      endpoint.requests.some((request) => request.method.startsWith("Browser.")),
+    ).toBe(false);
+  });
+});
+
+describe("browser-level connection release", () => {
+  it("closes the connection on disconnect", async () => {
+    const { ctx, endpoint, manager } = await managed(
+      () => fakePage(),
+      () => true,
+    );
+    await manager.prepare(ctx, {
+      url: "http://127.0.0.1:8765/",
+    });
+    expect(endpoint.openSockets()).toBe(1);
+    await manager.disconnect();
+    expect(await settledSockets(endpoint)).toBe(0);
+  });
+
+  it("closes the connection when the connect step fails after it opened", async () => {
+    const { ctx, endpoint, manager } = await managed(
+      () => fakePage(),
+      () => true,
+    );
+    // A live holder on the same endpoint makes the connect step fail after the
+    // WebSocket is already open: the leak this test exists to catch.
+    const holder = spawn(
+      "sleep",
+      [
+        "30",
+      ],
+      {
+        stdio: "ignore",
+      },
+    );
+    const lockPath = endpointLockPath(endpoint.cdpUrl);
+    await mkdir(dirname(lockPath), {
+      mode: 0o700,
+      recursive: true,
+    });
+    await writeFile(
+      lockPath,
+      JSON.stringify({
+        pid: holder.pid,
+        startedAt: "now",
+      }),
+      {
+        mode: 0o600,
+      },
+    );
+    try {
+      await expect(
+        manager.prepare(ctx, {
+          url: "http://127.0.0.1:8765/",
+        }),
+      ).rejects.toThrow("already owned by another xpi-visualoop process");
+      expect(await settledSockets(endpoint)).toBe(0);
+    } finally {
+      holder.kill("SIGKILL");
+      await rm(lockPath, {
+        force: true,
+      });
+    }
   });
 });

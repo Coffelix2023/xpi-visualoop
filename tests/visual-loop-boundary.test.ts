@@ -26,8 +26,14 @@ async function sourceFiles(dir: string): Promise<string[]> {
   return files.flat();
 }
 
-/** The only CDP methods the five read-only actions may send. */
+/**
+ * The only CDP methods the five read-only actions may send. The two Browser
+ * entries move the extension's own window into the configured launch form;
+ * they touch no page content and are sent without a page session.
+ */
 const ALLOWED_CDP_METHODS = new Set([
+  "Browser.getWindowForTarget",
+  "Browser.setWindowBounds",
   "Emulation.setDeviceMetricsOverride",
   "Log.enable",
   "Network.enable",

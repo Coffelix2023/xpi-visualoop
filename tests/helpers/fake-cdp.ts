@@ -21,6 +21,10 @@ export interface FakeCdpEndpoint {
   cdpUrl: string;
   close: () => Promise<void>;
   connectHits: number;
+  /** WebSocket connections the server still holds open. */
+  openSockets: () => number;
+  /** Every request the client sent, in order. */
+  requests: FakeCdpRequest[];
   sendEvent: (event: Record<string, unknown>) => void;
   versionHits: number;
 }
@@ -116,8 +120,10 @@ export async function fakeCdp(
   const endpoint: FakeCdpEndpoint = {
     cdpUrl: "",
     connectHits: 0,
+    requests: [],
     versionHits: 0,
     close: async () => undefined,
+    openSockets: () => sockets.size,
     sendEvent: (event) => {
       const frame = encodeText(JSON.stringify(event));
       for (const socket of sockets) socket.write(frame);
@@ -195,6 +201,7 @@ export async function fakeCdp(
         )
           continue;
         const requestMessage = value as FakeCdpRequest;
+        endpoint.requests.push(requestMessage);
         const reply = handler(requestMessage);
         if (reply === "drop") {
           socket.destroy();
@@ -269,6 +276,8 @@ export interface FakePageOptions {
     height: number;
     width: number;
   };
+  /** The browser owns no window for the target, so a window call fails. */
+  windowUnavailable?: boolean;
 }
 
 function valueReply(result: unknown): FakeCdpReply {
@@ -310,6 +319,23 @@ export async function fakePage(
   const endpoint = await fakeCdp((request: FakeCdpRequest): FakeCdpReply => {
     const sessionId = request.sessionId;
     switch (request.method) {
+      case "Browser.getWindowForTarget":
+        return options.windowUnavailable
+          ? {
+              error: {
+                code: -32000,
+                message: "Browser window is not available",
+              },
+            }
+          : {
+              result: {
+                windowId: 1,
+              },
+            };
+      case "Browser.setWindowBounds":
+        return {
+          result: {},
+        };
       case "Target.createTarget": {
         const targetId = `target-${targets.length + 1}`;
         targets.push(targetId);
